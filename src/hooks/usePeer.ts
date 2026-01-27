@@ -14,18 +14,8 @@ export interface Message {
   timestamp: number;
 }
 
-function isMessageObject(obj: any): obj is Omit<Message, 'sender'> {
-  return (
-    obj &&
-    typeof obj.id === 'string' &&
-    typeof obj.type === 'string' &&
-    typeof obj.content === 'string' &&
-    typeof obj.timestamp === 'number'
-  );
-}
-
-// 64KB is efficient, but we must pace it.
-const CHUNK_SIZE = 64 * 1024; 
+// CONFIG: 32KB is a safe balance for encryption speed vs network speed
+const CHUNK_SIZE = 32 * 1024; 
 
 export const usePeer = (myId: string, encryptionKey: string) => {
   const [peer, setPeer] = useState<Peer | null>(null);
@@ -34,7 +24,15 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
 
   const keyRef = useRef(encryptionKey);
-  const fileBuffer = useRef<Map<string, { total: number, count: number, parts: string[] }>>(new Map());
+  
+  // Buffer to hold DECRYPTED file pieces
+  const streamBuffer = useRef<Map<string, { 
+    type: MessageType, 
+    total: number, 
+    count: number, 
+    parts: string[],
+    timestamp: number 
+  }>>(new Map());
 
   useEffect(() => {
     keyRef.current = encryptionKey;
@@ -62,12 +60,21 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     setIsConnected(true);
 
     connection.on('data', (data: any) => {
-      if (data && data.type === 'CHUNK') {
-        handleIncomingChunk(data);
+      // 1. FILE HEADER (Start of a new file)
+      if (data && data.type === 'FILE_START') {
+        handleFileStart(data.payload);
         return;
       }
+
+      // 2. FILE CHUNK (A piece of the file)
+      if (data && data.type === 'FILE_CHUNK') {
+        handleFileChunk(data);
+        return;
+      }
+
+      // 3. STANDARD MESSAGE (Text/Nuke)
       if (data && data.payload) {
-        processEncryptedPayload(data.payload);
+        processStandardMessage(data.payload);
       }
     });
 
@@ -75,100 +82,144 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     connection.on('error', () => setIsConnected(false));
   };
 
-  const handleIncomingChunk = (data: any) => {
-    const { id, current, total, chunk } = data;
-    
-    if (!fileBuffer.current.has(id)) {
-      fileBuffer.current.set(id, { total, count: 0, parts: new Array(total) });
-    }
+  // --- RECEIVER LOGIC ---
 
-    const entry = fileBuffer.current.get(id)!;
-    entry.parts[current] = chunk;
-    entry.count++;
-
-    if (entry.count === entry.total) {
-      const fullEncryptedPayload = entry.parts.join('');
-      fileBuffer.current.delete(id);
-      processEncryptedPayload(fullEncryptedPayload);
+  const handleFileStart = (encryptedHeader: string) => {
+    try {
+      const bytes = CryptoJS.AES.decrypt(encryptedHeader, keyRef.current);
+      const header = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+      
+      // Initialize buffer for this file
+      streamBuffer.current.set(header.id, {
+        type: header.type,
+        total: header.totalChunks,
+        timestamp: header.timestamp,
+        count: 0,
+        parts: new Array(header.totalChunks)
+      });
+    } catch (e) {
+      console.error("Failed to start file stream");
     }
   };
 
-  const processEncryptedPayload = (encryptedText: string) => {
+  const handleFileChunk = (data: any) => {
+    const { id, current, chunk } = data;
+    const entry = streamBuffer.current.get(id);
+
+    if (!entry) return; // Unknown file
+
+    try {
+      // Decrypt this chunk IMMEDIATELY (prevents memory freeze later)
+      const bytes = CryptoJS.AES.decrypt(chunk, keyRef.current);
+      const decryptedPart = bytes.toString(CryptoJS.enc.Utf8);
+      
+      entry.parts[current] = decryptedPart;
+      entry.count++;
+
+      // Check if complete
+      if (entry.count === entry.total) {
+        const fullContent = entry.parts.join('');
+        
+        const msg: Message = {
+          id: id,
+          sender: 'them',
+          type: entry.type,
+          content: fullContent,
+          timestamp: entry.timestamp
+        };
+
+        setMessages(prev => [...prev, msg]);
+        streamBuffer.current.delete(id); // Clean memory
+      }
+    } catch (e) {
+      console.error("Chunk Decrypt Failed");
+    }
+  };
+
+  const processStandardMessage = (encryptedText: string) => {
     try {
       const bytes = CryptoJS.AES.decrypt(encryptedText, keyRef.current);
       const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
-
       if (!decryptedText) return;
 
-      const decryptedData = JSON.parse(decryptedText);
+      const data = JSON.parse(decryptedText);
 
-      if (decryptedData.type === 'NUKE_COMMAND') {
+      if (data.type === 'NUKE_COMMAND') {
         vault.nuke();
         return;
       }
-
-      if (isMessageObject(decryptedData)) {
-        setMessages((prev) => [...prev, { ...decryptedData, sender: 'them' }]);
+      
+      // Text messages
+      if (data.id && data.content) {
+         setMessages(prev => [...prev, { ...data, sender: 'them' }]);
       }
     } catch (e) {
-      console.error("Packet Error");
+      console.error("Msg Error");
     }
   };
 
   const connectToPeer = (peerId: string) => {
     if (!peer) return;
-    const connection = peer.connect(peerId, {
-      reliable: true,
-      serialization: 'json'
-    });
+    const connection = peer.connect(peerId, { reliable: true });
     connection.on('open', () => handleConnection(connection));
   };
+
+  // --- SENDER LOGIC (Streaming Encryption) ---
 
   const sendMessage = async (content: string, type: MessageType = 'text') => {
     if (!conn || !isConnected) return;
 
     const currentKey = keyRef.current;
+    const msgId = uuidv4();
+    const timestamp = Date.now();
 
+    // 1. Handle NUKE (Priority)
     if (type === 'NUKE_COMMAND') {
-      const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify({ type: 'NUKE_COMMAND' }), currentKey).toString();
-      conn.send({ payload: encryptedPayload });
+      const encrypted = CryptoJS.AES.encrypt(JSON.stringify({ type: 'NUKE_COMMAND' }), currentKey).toString();
+      conn.send({ payload: encrypted });
       vault.nuke();
       return;
     }
 
-    const msg: Message = {
-      id: uuidv4(),
-      sender: 'me',
-      type,
-      content,
-      timestamp: Date.now(),
-    };
-
-    const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify(msg), currentKey).toString();
-
-    // UPDATE: The "Pacing" Fix
-    if (encryptedPayload.length < CHUNK_SIZE) {
-      conn.send({ payload: encryptedPayload });
-    } else {
-      const totalChunks = Math.ceil(encryptedPayload.length / CHUNK_SIZE);
-      const transferId = uuidv4(); 
-
-      // Send chunks with a tiny delay (10ms) to prevent crashing the connection
-      for (let i = 0; i < totalChunks; i++) {
-        const chunk = encryptedPayload.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-        conn.send({
-          type: 'CHUNK',
-          id: transferId,
-          current: i,
-          total: totalChunks,
-          chunk: chunk
-        });
-        // This is the Magic Line: Wait 10ms between packets
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
+    // 2. Handle TEXT (Simple send)
+    if (type === 'text') {
+      const msg: Message = { id: msgId, sender: 'me', type, content, timestamp };
+      const encrypted = CryptoJS.AES.encrypt(JSON.stringify(msg), currentKey).toString();
+      conn.send({ payload: encrypted });
+      setMessages(prev => [...prev, msg]);
+      return;
     }
 
-    setMessages((prev) => [...prev, msg]);
+    // 3. Handle FILES (Stream Encryption)
+    // We encrypt piece-by-piece to stop the CPU from freezing
+    
+    const totalChunks = Math.ceil(content.length / CHUNK_SIZE);
+
+    // A. Send Header (Encrypted Metadata)
+    const header = { id: msgId, type, timestamp, totalChunks };
+    const encryptedHeader = CryptoJS.AES.encrypt(JSON.stringify(header), currentKey).toString();
+    conn.send({ type: 'FILE_START', payload: encryptedHeader });
+
+    // B. Loop, Encrypt, Send, Sleep
+    for (let i = 0; i < totalChunks; i++) {
+      const rawChunk = content.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      
+      // Encrypt ONLY this small piece
+      const encryptedChunk = CryptoJS.AES.encrypt(rawChunk, currentKey).toString();
+      
+      conn.send({
+        type: 'FILE_CHUNK',
+        id: msgId,
+        current: i,
+        chunk: encryptedChunk
+      });
+
+      // BREATHE: Wait 5ms to keep CPU and Connection alive
+      await new Promise(r => setTimeout(r, 5));
+    }
+
+    // Add to my own view
+    setMessages(prev => [...prev, { id: msgId, sender: 'me', type, content, timestamp }]);
   };
 
   return { isConnected, connectToPeer, sendMessage, messages, setMessages };
