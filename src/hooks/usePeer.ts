@@ -14,6 +14,17 @@ export interface Message {
   timestamp: number;
 }
 
+// Type guard to validate the structure of a received message
+function isMessageObject(obj: any): obj is Omit<Message, 'sender'> {
+  return (
+    obj &&
+    typeof obj.id === 'string' &&
+    typeof obj.type === 'string' &&
+    typeof obj.content === 'string' &&
+    typeof obj.timestamp === 'number'
+  );
+}
+
 export const usePeer = (myId: string, encryptionKey: string) => {
   const [peer, setPeer] = useState<Peer | null>(null);
   const [conn, setConn] = useState<DataConnection | null>(null);
@@ -51,11 +62,18 @@ export const usePeer = (myId: string, encryptionKey: string) => {
 
         const decryptedData = JSON.parse(decryptedText);
 
+        // Check for NUKE command first
         if (decryptedData.type === 'NUKE_COMMAND') {
           vault.nuke();
           return;
         }
-        setMessages((prev) => [...prev, { ...decryptedData, sender: 'them' }]);
+
+        // Validate the object structure before adding it to state
+        if (isMessageObject(decryptedData)) {
+          setMessages((prev) => [...prev, { ...decryptedData, sender: 'them' }]);
+        } else {
+          console.error("Decrypted data is not a valid message object:", decryptedData);
+        }
       } catch (e) {
         console.error("Failed to process incoming message:", e);
       }
