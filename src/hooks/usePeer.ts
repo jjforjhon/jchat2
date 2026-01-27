@@ -48,6 +48,14 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     // Pass the connection to our handler
     newPeer.on('connection', (connection) => handleConnection(connection));
     
+    // ERROR HANDLING: Detect if ID is taken or connection fails
+    newPeer.on('error', (err) => {
+      console.error("Peer Error:", err);
+      if (err.type === 'unavailable-id') {
+        alert("ID ALREADY IN USE. Close other tabs.");
+      }
+    });
+    
     return () => newPeer.destroy();
   }, [myId]);
 

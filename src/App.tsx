@@ -55,7 +55,7 @@ function App() {
       const lastMessage = messages[messages.length - 1];
       if (lastMessage && lastMessage.sender === 'them') {
         notificationSoundRef.current?.play().catch(e => {
-          console.log("Notification sound was blocked by the browser.");
+          // Browser blocked auto-play (normal behavior if user hasn't clicked yet)
         });
       }
     }
@@ -127,7 +127,7 @@ function App() {
 
   return (
     <div className="h-[100dvh] bg-black text-white flex flex-col overflow-hidden font-mono">
-      {/* Audio element for notifications */}
+      {/* Ensure the file in /public/ is named "notification.mp3" */}
       <audio ref={notificationSoundRef} src="/notification.mp3" preload="auto"></audio>
       <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4 shrink-0 bg-black z-10">
         <div className="flex items-center gap-3">
