@@ -1,65 +1,44 @@
-import { Download } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Message } from '../hooks/usePeer';
 
-export const ChatBubble = ({ msg }: { msg: Message }) => {
+interface ChatBubbleProps {
+  msg: Message;
+}
+
+export const ChatBubble = ({ msg }: ChatBubbleProps) => {
   const isMe = msg.sender === 'me';
 
-  const handleDownload = () => {
-    const link = document.createElement('a');
-    link.href = msg.content; // The Base64 string
-
-    // Determine file extension from MIME type in Base64 string
-    const mimeType = msg.content.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*,.*/);
-    let extension = 'bin'; // Default extension
-    if (mimeType && mimeType.length > 1) {
-      extension = mimeType[1].split('/')[1];
-    }
-
-    link.download = `jchat_${Date.now()}.${extension}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
+  // ✅ FIX 3: Changed 'msg.content' to 'msg.text' to match the new system
   return (
-    <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`
-        max-w-[85%] rounded-2xl overflow-hidden relative group
-        ${isMe ? 'bg-white text-black rounded-tr-sm' : 'bg-black border border-nothing-darkgray text-white rounded-tl-sm'}
-      `}>
-        
-        {msg.type === 'text' && (
-          <p className="p-3 font-mono text-sm break-words">{msg.content}</p>
-        )}
-
+    <div className={`flex w-full mb-4 ${isMe ? 'justify-end' : 'justify-start'}`}>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`max-w-[75%] p-3 rounded-lg border ${
+          isMe 
+            ? 'bg-white text-black border-white' 
+            : 'bg-black text-white border-nothing-darkgray'
+        }`}
+      >
+        {/* IMAGES */}
         {msg.type === 'image' && (
-          <div className="relative">
-            <img src={msg.content} alt="secure-img" className="max-h-64 object-cover" />
-            <button 
-              onClick={handleDownload}
-              className="absolute bottom-2 right-2 p-2 bg-black/50 backdrop-blur-md rounded-full text-white hover:bg-white hover:text-black transition-colors"
-            >
-              <Download size={16} />
-            </button>
-          </div>
+          <img src={msg.text} alt="attachment" className="rounded-md max-w-full mb-2" />
         )}
 
+        {/* VIDEOS */}
         {msg.type === 'video' && (
-          <div className="relative">
-            <video src={msg.content} controls className="max-h-64 bg-black" />
-            <button 
-              onClick={handleDownload}
-              className="absolute top-2 right-2 p-2 bg-black/50 backdrop-blur-md rounded-full text-white hover:bg-white hover:text-black transition-colors z-10"
-            >
-              <Download size={16} />
-            </button>
-          </div>
+          <video controls src={msg.text} className="rounded-md max-w-full mb-2" />
         )}
 
-        <div className={`text-[9px] px-3 pb-1 text-right ${isMe ? 'text-gray-400' : 'text-nothing-gray'}`}>
-          {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-        </div>
-      </div>
+        {/* TEXT */}
+        {msg.type === 'text' && (
+          <p className="text-sm font-mono break-words">{msg.text}</p>
+        )}
+        
+        <span className="text-[10px] opacity-50 block mt-1 text-right">
+          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      </motion.div>
     </div>
   );
 };
