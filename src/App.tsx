@@ -34,17 +34,17 @@ function App() {
       }
     };
     loadHistory();
-  }, [isConnected, targetId]);
+  }, [isConnected, targetId, credentials, setMessages]);
 
   useEffect(() => {
     const saveHistory = async () => {
       if (isConnected && credentials && messages.length > 0) {
         await vault.save(`chat_${targetId}`, messages, credentials.pass);
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
     saveHistory();
-  }, [messages]);
+  }, [messages, isConnected, targetId, credentials]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
     const file = e.target.files?.[0];
@@ -62,6 +62,12 @@ function App() {
     if (confirm("⚠️ MUTUAL NUKE PROTOCOL ⚠️\n\nThis will wipe YOUR phone AND send a kill code to your partner's device.\n\nAre you sure?")) {
       sendMessage('', 'NUKE_COMMAND');
     }
+  };
+
+  const handleSendText = () => {
+    if (!inputMsg.trim()) return;
+    sendMessage(inputMsg, 'text');
+    setInputMsg('');
   };
 
   if (!credentials) {
@@ -155,14 +161,14 @@ function App() {
             type="text"
             value={inputMsg}
             onChange={(e) => setInputMsg(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputMsg, 'text') || setInputMsg('')}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSendText(); }}
             placeholder="Message..."
             className="flex-1 bg-transparent border-b border-nothing-darkgray py-2 text-white focus:border-white outline-none placeholder:text-nothing-darkgray"
           />
 
           {inputMsg.trim() && (
             <button 
-              onClick={() => { sendMessage(inputMsg, 'text'); setInputMsg(''); }}
+              onClick={handleSendText}
               className="p-2 bg-white text-black rounded-full"
             >
               <Send size={16} />

@@ -6,9 +6,16 @@ export const ChatBubble = ({ msg }: { msg: Message }) => {
 
   const handleDownload = () => {
     const link = document.createElement('a');
-    link.href = msg.content;
-    const ext = msg.type === 'video' ? 'webm' : 'png'; 
-    link.download = `jchat_${Date.now()}.${ext}`;
+    link.href = msg.content; // The Base64 string
+
+    // Determine file extension from MIME type in Base64 string
+    const mimeType = msg.content.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*,.*/);
+    let extension = 'bin'; // Default extension
+    if (mimeType && mimeType.length > 1) {
+      extension = mimeType[1].split('/')[1];
+    }
+
+    link.download = `jchat_${Date.now()}.${extension}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
