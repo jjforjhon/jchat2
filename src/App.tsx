@@ -140,7 +140,7 @@ function App() {
         <main className="flex-1 flex flex-col justify-center gap-6">
           <input 
             value={targetId} 
-            onChange={(e) => setTargetId(e.target.value.toUpperCase())}
+            onChange={(e) => setTargetId(e.target.value)}
             placeholder="PASTE TARGET ID"
             className="p-4 bg-[#111] border border-nothing-darkgray text-white outline-none focus:border-white"
           />

@@ -9,7 +9,6 @@ export interface Message {
   type: 'text' | 'image' | 'video' | 'NUKE_COMMAND';
 }
 
-// ✅ FIXED: Now strictly accepts 2 arguments (myId, encryptionKey)
 export const usePeer = (myId: string, encryptionKey: string) => {
   const [peer, setPeer] = useState<Peer | null>(null);
   const [conn, setConn] = useState<DataConnection | null>(null);
@@ -31,6 +30,13 @@ export const usePeer = (myId: string, encryptionKey: string) => {
       handleConnection(connection);
     });
 
+    newPeer.on('error', (err) => {
+      console.error("Peer Error:", err);
+      if (err.type === 'peer-unavailable') {
+        alert("❌ User not found! Check the ID exactly.");
+      }
+    });
+
     return () => { newPeer.destroy(); };
   }, [myId]);
 
@@ -38,6 +44,8 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const handleConnection = useCallback((connection: DataConnection) => {
     setConn(connection);
     setIsConnected(true);
+    // Alert the user when connected!
+    alert("✅ Secure Link Established!");
 
     connection.on('data', async (data: any) => {
       try {
@@ -56,17 +64,43 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     connection.on('close', () => {
       setIsConnected(false);
       setConn(null);
+      alert("⚠️ Connection Lost");
     });
   }, [encryptionKey]);
 
   // 3. Connect to someone
   const connectToPeer = (targetId: string) => {
-    if (!peer || targetId === myId) return;
+    // ERROR CHECK 1: Is the server ready?
+    if (!peer) {
+      alert("❌ Server not ready. Please refresh the page.");
+      return;
+    }
+    
+    // ERROR CHECK 2: Are you calling yourself?
+    if (targetId === myId) {
+      alert("❌ You cannot connect to yourself! Open a new Incognito window.");
+      return;
+    }
+
+    // ERROR CHECK 3: Is ID empty?
+    if (!targetId) {
+        alert("❌ Please paste a Target ID.");
+        return;
+    }
+
+    console.log("Connecting to:", targetId);
     const connection = peer.connect(targetId, { reliable: true });
+    
     connection.on('open', () => handleConnection(connection));
+    
+    // If connection hangs
+    setTimeout(() => {
+        if (!connection.open) {
+            console.log("Connection timed out or waiting...");
+        }
+    }, 5000);
   };
 
-  // 4. Send Message
   const sendMessage = (content: string, type: 'text' | 'image' | 'video' | 'NUKE_COMMAND' = 'text') => {
     if (conn && isConnected) {
       const msg: Message = {
