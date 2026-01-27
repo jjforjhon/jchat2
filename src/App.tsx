@@ -7,17 +7,12 @@ import { LoginScreen } from './components/LoginScreen';
 import { ChatBubble } from './components/ChatBubble';
 import { deriveSessionKey } from './utils/crypto';
 
-/* =======================
-   TYPES
-======================= */
 type User = {
   id: string;
   name: string;
   email: string;
   token: string;
 };
-
-type FileType = 'image' | 'video';
 
 const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve) => {
@@ -34,20 +29,15 @@ function App() {
   const [inputMsg, setInputMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
 
-  const {
-    isConnected,
-    connectToPeer,
-    sendMessage,
-    messages,
-    setMessages
-  } = usePeer(user?.id ?? '', encryptionKey);
+  // ✅ CORRECTED: Calls usePeer with 2 arguments
+  const { isConnected, connectToPeer, sendMessage, messages, setMessages } = usePeer(
+    user?.id ?? '', 
+    encryptionKey
+  );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSoundRef = useRef<HTMLAudioElement>(null);
 
-  /* =======================
-     SESSION RESTORE
-  ======================= */
   useEffect(() => {
     const storedUser = localStorage.getItem('jchat_user');
     const storedKey = sessionStorage.getItem('jchat_session_key');
@@ -57,9 +47,6 @@ function App() {
     }
   }, []);
 
-  /* =======================
-     LOGIN / LOGOUT
-  ======================= */
   const handleLogin = async (userData: User, pass: string) => {
     const secureKey = await deriveSessionKey(pass);
     setUser(userData);
@@ -84,9 +71,6 @@ function App() {
     handleLogout();
   };
 
-  /* =======================
-     HISTORY & ALERTS
-  ======================= */
   useEffect(() => {
     const load = async () => {
       if (isConnected && user && targetId) {
@@ -117,10 +101,7 @@ function App() {
     prevLen.current = messages.length;
   }, [messages]);
 
-  /* =======================
-     HANDLERS
-  ======================= */
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: FileType) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 100 * 1024 * 1024) return alert('Max 100MB');
@@ -137,14 +118,10 @@ function App() {
 
   const handleNuke = () => {
     if (window.confirm('⚠️ NUKE PROTOCOL: Wipe both devices?')) {
-      // ✅ This now matches the type in usePeer.ts
       sendMessage('__NUKE__', 'NUKE_COMMAND');
     }
   };
 
-  /* =======================
-     UI RENDER
-  ======================= */
   if (!user) return <LoginScreen onLogin={handleLogin} />;
 
   if (!isConnected) {
@@ -167,10 +144,7 @@ function App() {
             placeholder="PASTE TARGET ID"
             className="p-4 bg-[#111] border border-nothing-darkgray text-white outline-none focus:border-white"
           />
-          <button 
-            onClick={() => connectToPeer(targetId)}
-            className="bg-white text-black p-4 font-bold tracking-widest hover:scale-[1.02] transition"
-          >
+          <button onClick={() => connectToPeer(targetId)} className="bg-white text-black p-4 font-bold tracking-widest hover:scale-[1.02] transition">
             INITIALIZE LINK
           </button>
         </main>
@@ -181,8 +155,6 @@ function App() {
   return (
     <div className="h-[100dvh] bg-black text-white flex flex-col font-mono">
       <audio ref={notificationSoundRef} src="/notification.mp3" />
-
-      {/* HEADER */}
       <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 bg-white rounded-full animate-pulse shadow-[0_0_10px_white]" />
@@ -196,13 +168,9 @@ function App() {
         </button>
       </header>
 
-      {/* SETTINGS MENU (Uses the 'unused' functions) */}
       <AnimatePresence>
         {showSettings && (
-          <motion.div 
-            initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
-            className="bg-[#111] border-b border-nothing-red overflow-hidden"
-          >
+          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="bg-[#111] border-b border-nothing-red overflow-hidden">
              <button onClick={handleNuke} className="w-full p-4 text-nothing-red font-bold flex justify-center gap-2 border-b border-nothing-darkgray">
                <AlertTriangle size={18} /> NUKE CHAT
              </button>
@@ -213,13 +181,11 @@ function App() {
         )}
       </AnimatePresence>
 
-      {/* CHAT AREA */}
       <main className="flex-1 overflow-y-auto p-4 scrollbar-hide">
         {messages.map((msg) => <ChatBubble key={msg.id} msg={msg} />)}
         <div ref={messagesEndRef} />
       </main>
 
-      {/* FOOTER (Uses the 'unused' file inputs) */}
       <footer className="p-4 border-t border-nothing-darkgray bg-black">
         <div className="flex items-center gap-3">
           <label className="cursor-pointer text-nothing-gray hover:text-white">
@@ -230,18 +196,8 @@ function App() {
             <input type="file" accept="video/*" className="hidden" onChange={(e) => handleFileUpload(e, 'video')} />
             <Video size={20} />
           </label>
-          <input
-            value={inputMsg}
-            onChange={(e) => setInputMsg(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-            placeholder="Message..."
-            className="flex-1 bg-transparent border-b border-nothing-darkgray py-2 focus:border-white outline-none"
-          />
-          {inputMsg.trim() && (
-            <button onClick={handleSendText} className="p-2 bg-white text-black rounded-full">
-              <Send size={16} />
-            </button>
-          )}
+          <input value={inputMsg} onChange={(e) => setInputMsg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendText()} placeholder="Message..." className="flex-1 bg-transparent border-b border-nothing-darkgray py-2 focus:border-white outline-none" />
+          {inputMsg.trim() && <button onClick={handleSendText} className="p-2 bg-white text-black rounded-full"><Send size={16} /></button>}
         </div>
       </footer>
     </div>

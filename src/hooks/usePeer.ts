@@ -9,6 +9,7 @@ export interface Message {
   type: 'text' | 'image' | 'video' | 'NUKE_COMMAND';
 }
 
+// ✅ FIXED: Now strictly accepts 2 arguments (myId, encryptionKey)
 export const usePeer = (myId: string, encryptionKey: string) => {
   const [peer, setPeer] = useState<Peer | null>(null);
   const [conn, setConn] = useState<DataConnection | null>(null);
