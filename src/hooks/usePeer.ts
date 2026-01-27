@@ -25,8 +25,9 @@ function isMessageObject(obj: any): obj is Omit<Message, 'sender'> {
   );
 }
 
-// CONSTANTS
-const CHUNK_SIZE = 16 * 1024; // 16KB (Safe limit for WebRTC)
+// PERFORMANCE CONFIGURATION
+// Increased to 64KB for faster transfer on modern networks
+const CHUNK_SIZE = 64 * 1024; 
 
 export const usePeer = (myId: string, encryptionKey: string) => {
   const [peer, setPeer] = useState<Peer | null>(null);
@@ -44,7 +45,9 @@ export const usePeer = (myId: string, encryptionKey: string) => {
 
   useEffect(() => {
     if (!myId) return;
-    const newPeer = new Peer(myId);
+    const newPeer = new Peer(myId, {
+      debug: 0, // Turn off logs for speed
+    });
 
     newPeer.on('open', () => setPeer(newPeer));
     newPeer.on('connection', (connection) => handleConnection(connection));
@@ -64,13 +67,13 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     setIsConnected(true);
 
     connection.on('data', (data: any) => {
-      // 1. Handle CHUNKS (File Pieces)
+      // 1. Handle CHUNKS (High Speed File Transfer)
       if (data && data.type === 'CHUNK') {
         handleIncomingChunk(data);
         return;
       }
 
-      // 2. Handle Standard Messages (Small text)
+      // 2. Handle Standard Messages (Instant Text)
       if (data && data.payload) {
         processEncryptedPayload(data.payload);
       }
@@ -95,8 +98,9 @@ export const usePeer = (myId: string, encryptionKey: string) => {
 
     // Check if we have all pieces
     if (entry.count === entry.total) {
+      // Join all parts using memory-efficient join
       const fullEncryptedPayload = entry.parts.join('');
-      fileBuffer.current.delete(id); // Clean memory
+      fileBuffer.current.delete(id); // Clean memory immediately
       processEncryptedPayload(fullEncryptedPayload);
     }
   };
@@ -104,12 +108,12 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   // --- LOGIC: Decrypt & Save ---
   const processEncryptedPayload = (encryptedText: string) => {
     try {
+      // Decrypt
       const bytes = CryptoJS.AES.decrypt(encryptedText, keyRef.current);
       const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
 
       if (!decryptedText) {
-        console.error("Decryption failed: Incorrect key or corrupted data.");
-        return;
+        return; // Silent fail for security
       }
 
       const decryptedData = JSON.parse(decryptedText);
@@ -123,23 +127,26 @@ export const usePeer = (myId: string, encryptionKey: string) => {
         setMessages((prev) => [...prev, { ...decryptedData, sender: 'them' }]);
       }
     } catch (e) {
-      console.error("Failed to process message:", e);
+      console.error("Packet Error");
     }
   };
 
   const connectToPeer = (peerId: string) => {
     if (!peer) return;
-    const connection = peer.connect(peerId);
+    const connection = peer.connect(peerId, {
+      reliable: true, // Ensure no lost packets
+      serialization: 'json' // Faster for our string-based encryption
+    });
     connection.on('open', () => handleConnection(connection));
   };
 
-  // --- LOGIC: Send (With Chunking) ---
+  // --- LOGIC: Send (With Turbo Chunking) ---
   const sendMessage = (content: string, type: MessageType = 'text') => {
     if (!conn || !isConnected) return;
 
     const currentKey = keyRef.current;
 
-    // Handle Nuke separately (it's tiny)
+    // Handle Nuke separately (Priority)
     if (type === 'NUKE_COMMAND') {
       const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify({ type: 'NUKE_COMMAND' }), currentKey).toString();
       conn.send({ payload: encryptedPayload });
@@ -158,14 +165,14 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     // 1. Encrypt the whole object
     const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify(msg), currentKey).toString();
 
-    // 2. Decide: Send directly or Chunk it?
+    // 2. Decide: Direct Send or Chunking?
     if (encryptedPayload.length < CHUNK_SIZE) {
-      // Small enough? Send directly
+      // Fast path for text
       conn.send({ payload: encryptedPayload });
     } else {
-      // Too big? CHUNK IT!
+      // Turbo path for files
       const totalChunks = Math.ceil(encryptedPayload.length / CHUNK_SIZE);
-      const transferId = uuidv4(); // Unique ID for this file transfer
+      const transferId = uuidv4(); 
 
       for (let i = 0; i < totalChunks; i++) {
         const chunk = encryptedPayload.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
