@@ -14,7 +14,6 @@ export interface Message {
   timestamp: number;
 }
 
-// Helper: Check if data is a valid message object
 function isMessageObject(obj: any): obj is Omit<Message, 'sender'> {
   return (
     obj &&
@@ -25,8 +24,7 @@ function isMessageObject(obj: any): obj is Omit<Message, 'sender'> {
   );
 }
 
-// PERFORMANCE CONFIGURATION
-// Increased to 64KB for faster transfer on modern networks
+// 64KB is efficient, but we must pace it.
 const CHUNK_SIZE = 64 * 1024; 
 
 export const usePeer = (myId: string, encryptionKey: string) => {
@@ -36,7 +34,6 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
 
   const keyRef = useRef(encryptionKey);
-  // Buffer to hold incoming file pieces until they are complete
   const fileBuffer = useRef<Map<string, { total: number, count: number, parts: string[] }>>(new Map());
 
   useEffect(() => {
@@ -45,9 +42,7 @@ export const usePeer = (myId: string, encryptionKey: string) => {
 
   useEffect(() => {
     if (!myId) return;
-    const newPeer = new Peer(myId, {
-      debug: 0, // Turn off logs for speed
-    });
+    const newPeer = new Peer(myId, { debug: 0 });
 
     newPeer.on('open', () => setPeer(newPeer));
     newPeer.on('connection', (connection) => handleConnection(connection));
@@ -67,13 +62,10 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     setIsConnected(true);
 
     connection.on('data', (data: any) => {
-      // 1. Handle CHUNKS (High Speed File Transfer)
       if (data && data.type === 'CHUNK') {
         handleIncomingChunk(data);
         return;
       }
-
-      // 2. Handle Standard Messages (Instant Text)
       if (data && data.payload) {
         processEncryptedPayload(data.payload);
       }
@@ -83,11 +75,9 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     connection.on('error', () => setIsConnected(false));
   };
 
-  // --- LOGIC: Reassemble Chunks ---
   const handleIncomingChunk = (data: any) => {
     const { id, current, total, chunk } = data;
     
-    // Initialize buffer for this file ID if new
     if (!fileBuffer.current.has(id)) {
       fileBuffer.current.set(id, { total, count: 0, parts: new Array(total) });
     }
@@ -96,25 +86,19 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     entry.parts[current] = chunk;
     entry.count++;
 
-    // Check if we have all pieces
     if (entry.count === entry.total) {
-      // Join all parts using memory-efficient join
       const fullEncryptedPayload = entry.parts.join('');
-      fileBuffer.current.delete(id); // Clean memory immediately
+      fileBuffer.current.delete(id);
       processEncryptedPayload(fullEncryptedPayload);
     }
   };
 
-  // --- LOGIC: Decrypt & Save ---
   const processEncryptedPayload = (encryptedText: string) => {
     try {
-      // Decrypt
       const bytes = CryptoJS.AES.decrypt(encryptedText, keyRef.current);
       const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
 
-      if (!decryptedText) {
-        return; // Silent fail for security
-      }
+      if (!decryptedText) return;
 
       const decryptedData = JSON.parse(decryptedText);
 
@@ -134,19 +118,17 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const connectToPeer = (peerId: string) => {
     if (!peer) return;
     const connection = peer.connect(peerId, {
-      reliable: true, // Ensure no lost packets
-      serialization: 'json' // Faster for our string-based encryption
+      reliable: true,
+      serialization: 'json'
     });
     connection.on('open', () => handleConnection(connection));
   };
 
-  // --- LOGIC: Send (With Turbo Chunking) ---
-  const sendMessage = (content: string, type: MessageType = 'text') => {
+  const sendMessage = async (content: string, type: MessageType = 'text') => {
     if (!conn || !isConnected) return;
 
     const currentKey = keyRef.current;
 
-    // Handle Nuke separately (Priority)
     if (type === 'NUKE_COMMAND') {
       const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify({ type: 'NUKE_COMMAND' }), currentKey).toString();
       conn.send({ payload: encryptedPayload });
@@ -162,18 +144,16 @@ export const usePeer = (myId: string, encryptionKey: string) => {
       timestamp: Date.now(),
     };
 
-    // 1. Encrypt the whole object
     const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify(msg), currentKey).toString();
 
-    // 2. Decide: Direct Send or Chunking?
+    // UPDATE: The "Pacing" Fix
     if (encryptedPayload.length < CHUNK_SIZE) {
-      // Fast path for text
       conn.send({ payload: encryptedPayload });
     } else {
-      // Turbo path for files
       const totalChunks = Math.ceil(encryptedPayload.length / CHUNK_SIZE);
       const transferId = uuidv4(); 
 
+      // Send chunks with a tiny delay (10ms) to prevent crashing the connection
       for (let i = 0; i < totalChunks; i++) {
         const chunk = encryptedPayload.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         conn.send({
@@ -183,6 +163,8 @@ export const usePeer = (myId: string, encryptionKey: string) => {
           total: totalChunks,
           chunk: chunk
         });
+        // This is the Magic Line: Wait 10ms between packets
+        await new Promise(resolve => setTimeout(resolve, 10));
       }
     }
 
