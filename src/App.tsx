@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
+// ... keep your other imports (motion, lucide, usePeer, vault, ChatBubble) ...
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Video, Send, AlertTriangle, Copy } from 'lucide-react';
+import { Image as ImageIcon, Video, Send, AlertTriangle, Copy, LogOut } from 'lucide-react';
 import { usePeer } from './hooks/usePeer';
 import { vault } from './utils/storage';
 import { LoginScreen } from './components/LoginScreen';
 import { ChatBubble } from './components/ChatBubble';
 
+// ... keep blobToBase64 helper ...
 const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -15,96 +17,147 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 function App() {
-  const [credentials, setCredentials] = useState<{id: string, pass: string} | null>(null);
+  // We now store the full User Object from server
+  const [user, setUser] = useState<{id: string, name: string, email: string, token: string} | null>(null);
+  const [encryptionKey, setEncryptionKey] = useState<string>(''); // Kept in memory/storage
+  
   const [targetId, setTargetId] = useState('');
   const [inputMsg, setInputMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
 
+  // Initialize Peer with the PERMANENT ID from the server
   const { isConnected, connectToPeer, sendMessage, messages, setMessages } = usePeer(
-    credentials?.id || '', 
-    credentials?.pass || ''
+    user?.id || '', 
+    encryptionKey || ''
   );
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSoundRef = useRef<HTMLAudioElement>(null);
 
+  // 1. SESSION PERSISTENCE (Auto-Login)
+  useEffect(() => {
+    const storedUser = localStorage.getItem('jchat_user');
+    const storedKey = localStorage.getItem('jchat_key');
+    
+    if (storedUser && storedKey) {
+      setUser(JSON.parse(storedUser));
+      setEncryptionKey(storedKey);
+    }
+  }, []);
+
+  const handleLogin = (userData: any, pass: string) => {
+    setUser(userData);
+    setEncryptionKey(pass);
+    
+    // Save to local storage for persistence
+    localStorage.setItem('jchat_user', JSON.stringify(userData));
+    localStorage.setItem('jchat_key', pass);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('jchat_user');
+    localStorage.removeItem('jchat_key');
+    window.location.reload();
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!confirm("PERMANENTLY DELETE SERVER PROFILE? This cannot be undone.")) return;
+    
+    await fetch('http://localhost:3001/api/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: user?.token })
+    });
+    
+    handleLogout();
+  };
+
+  // ... [Keep existing Load/Save History Effects unchanged] ...
   useEffect(() => {
     const loadHistory = async () => {
-      if (isConnected && credentials && targetId) {
-        const history = await vault.load(`chat_${targetId}`, credentials.pass);
+      if (isConnected && user && targetId) {
+        // Use encryptionKey (password) to unlock local storage
+        const history = await vault.load(`chat_${targetId}`, encryptionKey);
         if (history) setMessages(history);
       }
     };
     loadHistory();
-  }, [isConnected, targetId, credentials, setMessages]);
+  }, [isConnected, targetId, user, encryptionKey, setMessages]);
 
   useEffect(() => {
     const saveHistory = async () => {
-      if (isConnected && credentials && messages.length > 0) {
-        await vault.save(`chat_${targetId}`, messages, credentials.pass);
+      if (isConnected && user && messages.length > 0) {
+        await vault.save(`chat_${targetId}`, messages, encryptionKey);
       }
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
     saveHistory();
-  }, [messages, isConnected, targetId, credentials]);
+  }, [messages, isConnected, targetId, user, encryptionKey]);
 
-  // Effect for notification sound
+  // ... [Keep Notification Effect unchanged] ...
   const prevMessagesLength = useRef(messages.length);
   useEffect(() => {
     if (messages.length > prevMessagesLength.current) {
       const lastMessage = messages[messages.length - 1];
       if (lastMessage && lastMessage.sender === 'them') {
-        // FIX: Removed unused 'e' variable to fix Vercel build error
-        notificationSoundRef.current?.play().catch(() => {
-          // Browser blocked auto-play
-        });
+        notificationSoundRef.current?.play().catch(() => {});
       }
     }
     prevMessagesLength.current = messages.length;
   }, [messages]);
 
+  // ... [Keep File Upload, Nuke, SendText functions unchanged] ...
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("File too large for P2P (Max 5MB)");
-        return;
+      const file = e.target.files?.[0];
+      if (file) {
+        if (file.size > 50 * 1024 * 1024) { // Update limit if you want
+          alert("File too large (Max 50MB)");
+          return;
+        }
+        const base64 = await blobToBase64(file);
+        sendMessage(base64, type);
       }
-      const base64 = await blobToBase64(file);
-      sendMessage(base64, type);
-    }
-  };
+    };
+  
+    const handleNuke = () => {
+      if (confirm("⚠️ MUTUAL NUKE PROTOCOL ⚠️\n\nThis will wipe YOUR phone AND send a kill code to your partner's device.\n\nAre you sure?")) {
+        sendMessage('', 'NUKE_COMMAND');
+      }
+    };
+  
+    const handleSendText = () => {
+      if (!inputMsg.trim()) return;
+      sendMessage(inputMsg, 'text');
+      setInputMsg('');
+    };
 
-  const handleNuke = () => {
-    if (confirm("⚠️ MUTUAL NUKE PROTOCOL ⚠️\n\nThis will wipe YOUR phone AND send a kill code to your partner's device.\n\nAre you sure?")) {
-      sendMessage('', 'NUKE_COMMAND');
-    }
-  };
-
-  const handleSendText = () => {
-    if (!inputMsg.trim()) return;
-    sendMessage(inputMsg, 'text');
-    setInputMsg('');
-  };
-
-  if (!credentials) {
-    return <LoginScreen onLogin={(id, pass) => setCredentials({ id, pass })} />;
+  if (!user) {
+    return <LoginScreen onLogin={handleLogin} />;
   }
 
+  // ... [Render Logic - Update Header to show Name/Logout] ...
   if (!isConnected) {
     return (
       <div className="min-h-screen bg-black text-white p-6 flex flex-col font-mono">
         <header className="border-b border-nothing-darkgray pb-4 flex justify-between items-end">
           <div>
             <h1 className="font-dot text-4xl">J-CHAT</h1>
-            <p className="text-nothing-gray text-[10px]">ID: {credentials.id}</p>
+            <p className="text-nothing-gray text-[10px]">ID: {user.id}</p>
+            <p className="text-nothing-gray text-[10px]">USER: {user.name}</p>
           </div>
-          <button onClick={() => navigator.clipboard.writeText(credentials.id)}>
-            <Copy size={20} className="text-nothing-gray hover:text-white" />
-          </button>
+          <div className="flex gap-4">
+             <button onClick={handleLogout} className="text-nothing-gray hover:text-nothing-red">
+                <LogOut size={20} />
+             </button>
+             <button onClick={() => navigator.clipboard.writeText(user.id)}>
+               <Copy size={20} className="text-nothing-gray hover:text-white" />
+             </button>
+          </div>
         </header>
 
         <main className="flex-1 flex flex-col justify-center gap-6">
-          <div className="space-y-2">
+           {/* ... Keep Target ID Input ... */}
+           <div className="space-y-2">
             <label className="text-nothing-gray text-xs uppercase">Target ID</label>
             <input 
               type="text" 
@@ -128,12 +181,14 @@ function App() {
   return (
     <div className="h-[100dvh] bg-black text-white flex flex-col overflow-hidden font-mono">
       <audio ref={notificationSoundRef} src="/notification.mp3" preload="auto"></audio>
+      
+      {/* Header Updates */}
       <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4 shrink-0 bg-black z-10">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 bg-white rounded-full animate-pulse shadow-[0_0_10px_white]" />
           <div>
-            <h2 className="font-dot text-xl leading-none">SECURE</h2>
-            <span className="text-[10px] text-nothing-gray">{targetId}</span>
+            <h2 className="font-dot text-xl leading-none">SECURE LINK</h2>
+            <span className="text-[10px] text-nothing-gray">TARGET: {targetId}</span>
           </div>
         </div>
         <button onClick={() => setShowSettings(!showSettings)} className="text-nothing-gray hover:text-nothing-red">
@@ -141,22 +196,32 @@ function App() {
         </button>
       </header>
 
+      {/* Settings Menu Updates */}
       <AnimatePresence>
         {showSettings && (
           <motion.div 
             initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
             className="bg-[#111] border-b border-nothing-red overflow-hidden"
           >
-            <button 
-              onClick={handleNuke}
-              className="w-full p-6 text-nothing-red font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-nothing-red hover:text-white transition-colors"
-            >
-              <AlertTriangle size={18} /> DELETE CHAT FOR EVERYONE
-            </button>
+             <div className="flex flex-col">
+                <button 
+                  onClick={handleNuke}
+                  className="w-full p-4 text-nothing-red font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-nothing-red hover:text-white transition-colors border-b border-nothing-darkgray"
+                >
+                  <AlertTriangle size={18} /> NUKE CHAT
+                </button>
+                <button 
+                  onClick={handleDeleteProfile}
+                  className="w-full p-4 text-gray-500 font-bold uppercase tracking-widest text-xs hover:text-white transition-colors"
+                >
+                  DELETE SERVER PROFILE
+                </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* ... Keep Main Chat and Footer unchanged ... */}
       <main className="flex-1 overflow-y-auto p-4 scrollbar-hide">
         {messages.map((msg) => <ChatBubble key={msg.id} msg={msg} />)}
         <div ref={messagesEndRef} />

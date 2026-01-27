@@ -1,20 +1,44 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { generateIdentity } from '../utils/storage';
 
 interface LoginProps {
-  onLogin: (id: string, pass: string) => void;
+  onLogin: (data: any, pass: string) => void;
 }
 
 export const LoginScreen = ({ onLogin }: LoginProps) => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    name: '',
+  });
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const API_URL = 'http://localhost:3001/api'; // Change this when deploying
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return;
-    const id = generateIdentity(username, password);
-    onLogin(id, password);
+    setError('');
+
+    const endpoint = isSignUp ? '/signup' : '/login';
+    
+    try {
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Authentication failed');
+
+      // Pass the Server Data + The raw password (for encryption)
+      onLogin(data, formData.password);
+      
+    } catch (err: any) {
+      setError(err.message);
+    }
   };
 
   return (
@@ -26,39 +50,65 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
       >
         <div className="text-center space-y-2">
           <h1 className="font-dot text-6xl tracking-tighter">VAULT</h1>
-          <p className="text-nothing-gray text-xs uppercase tracking-widest">Secure Entry // V2.0</p>
+          <p className="text-nothing-gray text-xs uppercase tracking-widest">
+            {isSignUp ? 'Create Identity' : 'Authenticate'}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {isSignUp && (
+            <div className="space-y-1">
+              <label className="text-[10px] text-nothing-gray uppercase">Display Name</label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                className="w-full bg-transparent border-b border-nothing-darkgray py-2 text-xl font-bold focus:border-white focus:outline-none transition-colors rounded-none"
+              />
+            </div>
+          )}
+
           <div className="space-y-1">
-            <label className="text-[10px] text-nothing-gray uppercase">Identity</label>
+            <label className="text-[10px] text-nothing-gray uppercase">Email</label>
             <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              required
+              value={formData.email}
+              onChange={(e) => setFormData({...formData, email: e.target.value})}
               className="w-full bg-transparent border-b border-nothing-darkgray py-2 text-xl font-bold focus:border-white focus:outline-none transition-colors rounded-none"
-              placeholder="USERNAME"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] text-nothing-gray uppercase">Key</label>
+            <label className="text-[10px] text-nothing-gray uppercase">Password</label>
             <input
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              required
+              value={formData.password}
+              onChange={(e) => setFormData({...formData, password: e.target.value})}
               className="w-full bg-transparent border-b border-nothing-darkgray py-2 text-xl font-bold focus:border-white focus:outline-none transition-colors rounded-none"
-              placeholder="PASSWORD"
             />
           </div>
+
+          {error && <p className="text-nothing-red text-sm text-center">{error}</p>}
 
           <button 
             type="submit"
             className="w-full h-14 bg-white text-black font-bold uppercase tracking-widest rounded-nothing hover:bg-nothing-gray transition-colors mt-8"
           >
-            Access Vault
+            {isSignUp ? 'Generate Profile' : 'Access Vault'}
           </button>
         </form>
+
+        <div className="text-center">
+          <button 
+            onClick={() => setIsSignUp(!isSignUp)}
+            className="text-nothing-gray text-xs hover:text-white underline"
+          >
+            {isSignUp ? 'Already have an ID? Login' : 'Need a secure ID? Sign Up'}
+          </button>
+        </div>
       </motion.div>
     </div>
   );
