@@ -25,6 +25,7 @@ function App() {
     credentials?.pass || ''
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const notificationSoundRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -45,6 +46,21 @@ function App() {
     };
     saveHistory();
   }, [messages, isConnected, targetId, credentials]);
+
+  // Effect for notification sound
+  const prevMessagesLength = useRef(messages.length);
+  useEffect(() => {
+    // Play sound only when a new message is added by the other user
+    if (messages.length > prevMessagesLength.current) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage && lastMessage.sender === 'them') {
+        notificationSoundRef.current?.play().catch(e => {
+          console.log("Notification sound was blocked by the browser.");
+        });
+      }
+    }
+    prevMessagesLength.current = messages.length;
+  }, [messages]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
     const file = e.target.files?.[0];
@@ -111,6 +127,8 @@ function App() {
 
   return (
     <div className="h-[100dvh] bg-black text-white flex flex-col overflow-hidden font-mono">
+      {/* Audio element for notifications */}
+      <audio ref={notificationSoundRef} src="/notification.mp3" preload="auto"></audio>
       <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4 shrink-0 bg-black z-10">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 bg-white rounded-full animate-pulse shadow-[0_0_10px_white]" />

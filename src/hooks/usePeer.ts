@@ -33,23 +33,32 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     setIsConnected(true);
 
     connection.on('data', (data: any) => {
-      // Decrypt incoming data if it's not a NUKE command
-      let decryptedData = data;
-      if (data.payload) {
-        try {
-          const bytes = CryptoJS.AES.decrypt(data.payload, encryptionKey);
-          decryptedData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
-        } catch (e) {
-          console.error("Failed to decrypt message:", e);
-          return; // Don't process a message that can't be decrypted
-        }
-      }
-
-      if (decryptedData.type === 'NUKE_COMMAND') {
-        vault.nuke();
+      // All valid data must be in a 'payload' object.
+      if (!data || !data.payload) {
+        console.error("Received malformed message, discarding.", data);
         return;
       }
-      setMessages((prev) => [...prev, { ...decryptedData, sender: 'them' }]);
+
+      try {
+        const bytes = CryptoJS.AES.decrypt(data.payload, encryptionKey);
+        const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
+
+        // If decryption results in an empty string, the key was wrong.
+        if (!decryptedText) {
+          console.error("Decryption failed: Incorrect key or corrupted data.");
+          return;
+        }
+
+        const decryptedData = JSON.parse(decryptedText);
+
+        if (decryptedData.type === 'NUKE_COMMAND') {
+          vault.nuke();
+          return;
+        }
+        setMessages((prev) => [...prev, { ...decryptedData, sender: 'them' }]);
+      } catch (e) {
+        console.error("Failed to process incoming message:", e);
+      }
     });
 
     connection.on('close', () => setIsConnected(false));
@@ -65,8 +74,8 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const sendMessage = (content: string, type: MessageType = 'text') => {
     if (!conn || !isConnected) return;
 
+    // The NUKE command is also encrypted for security
     if (type === 'NUKE_COMMAND') {
-      // Nuke command is sent in plaintext so the type can be read before decryption
       const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify({ type: 'NUKE_COMMAND' }), encryptionKey).toString();
       conn.send({ payload: encryptedPayload });
       vault.nuke();
