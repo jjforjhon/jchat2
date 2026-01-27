@@ -29,14 +29,21 @@ function App() {
   const [inputMsg, setInputMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
 
-  // ✅ CORRECTED: Calls usePeer with 2 arguments
-  const { isConnected, connectToPeer, sendMessage, messages, setMessages } = usePeer(
+  // ✅ NEW: Get 'remotePeerId' from the hook
+  const { isConnected, connectToPeer, sendMessage, messages, setMessages, remotePeerId } = usePeer(
     user?.id ?? '', 
     encryptionKey
   );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSoundRef = useRef<HTMLAudioElement>(null);
+
+  // ✅ NEW: If we receive a call, auto-fill the Target ID so history loads
+  useEffect(() => {
+    if (remotePeerId) {
+      setTargetId(remotePeerId);
+    }
+  }, [remotePeerId]);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('jchat_user');
@@ -74,6 +81,7 @@ function App() {
   useEffect(() => {
     const load = async () => {
       if (isConnected && user && targetId) {
+        // ✅ NOW this will work on the phone because targetId is auto-filled
         const h = await vault.load(`chat_${targetId}`, encryptionKey);
         if (h) setMessages(h);
       }

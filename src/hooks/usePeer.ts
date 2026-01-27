@@ -14,6 +14,8 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const [conn, setConn] = useState<DataConnection | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  // ✅ NEW: Store the ID of the person we are connected to
+  const [remotePeerId, setRemotePeerId] = useState<string>('');
 
   // 1. Initialize Peer
   useEffect(() => {
@@ -44,7 +46,9 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const handleConnection = useCallback((connection: DataConnection) => {
     setConn(connection);
     setIsConnected(true);
-    // Alert the user when connected!
+    // ✅ NEW: Automatically save who is calling us
+    setRemotePeerId(connection.peer); 
+    
     alert("✅ Secure Link Established!");
 
     connection.on('data', async (data: any) => {
@@ -64,41 +68,21 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     connection.on('close', () => {
       setIsConnected(false);
       setConn(null);
+      setRemotePeerId(''); // Reset when closed
       alert("⚠️ Connection Lost");
     });
   }, [encryptionKey]);
 
   // 3. Connect to someone
   const connectToPeer = (targetId: string) => {
-    // ERROR CHECK 1: Is the server ready?
-    if (!peer) {
-      alert("❌ Server not ready. Please refresh the page.");
-      return;
-    }
-    
-    // ERROR CHECK 2: Are you calling yourself?
-    if (targetId === myId) {
-      alert("❌ You cannot connect to yourself! Open a new Incognito window.");
-      return;
-    }
-
-    // ERROR CHECK 3: Is ID empty?
-    if (!targetId) {
-        alert("❌ Please paste a Target ID.");
-        return;
-    }
+    if (!peer) return alert("❌ Server not ready. Please refresh.");
+    if (targetId === myId) return alert("❌ You cannot connect to yourself!");
+    if (!targetId) return alert("❌ Please paste a Target ID.");
 
     console.log("Connecting to:", targetId);
     const connection = peer.connect(targetId, { reliable: true });
     
     connection.on('open', () => handleConnection(connection));
-    
-    // If connection hangs
-    setTimeout(() => {
-        if (!connection.open) {
-            console.log("Connection timed out or waiting...");
-        }
-    }, 5000);
   };
 
   const sendMessage = (content: string, type: 'text' | 'image' | 'video' | 'NUKE_COMMAND' = 'text') => {
@@ -115,5 +99,6 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     }
   };
 
-  return { isConnected, connectToPeer, sendMessage, messages, setMessages };
+  // ✅ NEW: Return 'remotePeerId' so the App can see it
+  return { isConnected, connectToPeer, sendMessage, messages, setMessages, remotePeerId };
 };
