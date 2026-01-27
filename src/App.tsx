@@ -160,7 +160,7 @@ function App() {
               type="text" 
               value={targetId}
               onChange={(e) => setTargetId(e.target.value.toUpperCase())}
-              placeholder="ENTER 6-CHAR CODE"
+              placeholder="PASTE TARGET ID"
               className="w-full bg-[#111] border border-nothing-darkgray rounded-nothing p-4 text-xl font-dot text-white focus:border-white outline-none"
             />
           </div>
