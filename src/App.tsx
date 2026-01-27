@@ -5,8 +5,19 @@ import { usePeer } from './hooks/usePeer';
 import { vault } from './utils/storage';
 import { LoginScreen } from './components/LoginScreen';
 import { ChatBubble } from './components/ChatBubble';
-// IMPORT THE NEW SECURITY TOOL
 import { deriveSessionKey } from './utils/crypto';
+
+/* =======================
+   TYPES
+======================= */
+type User = {
+  id: string;
+  name: string;
+  email: string;
+  token: string;
+};
+
+type FileType = 'image' | 'video';
 
 const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve) => {
@@ -17,41 +28,42 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 function App() {
-  const [user, setUser] = useState<{id: string, name: string, email: string, token: string} | null>(null);
-  const [encryptionKey, setEncryptionKey] = useState<string>(''); 
+  const [user, setUser] = useState<User | null>(null);
+  const [encryptionKey, setEncryptionKey] = useState<string>('');
   const [targetId, setTargetId] = useState('');
   const [inputMsg, setInputMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
 
-  // Initialize Peer with the PERMANENT ID from the server
-  const { isConnected, connectToPeer, sendMessage, messages, setMessages } = usePeer(
-    user?.id || '', 
-    encryptionKey || ''
-  );
-  
+  const {
+    isConnected,
+    connectToPeer,
+    sendMessage,
+    messages,
+    setMessages
+  } = usePeer(user?.id ?? '', encryptionKey);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSoundRef = useRef<HTMLAudioElement>(null);
 
-  // 1. SESSION PERSISTENCE (SECURE)
+  /* =======================
+     SESSION RESTORE
+  ======================= */
   useEffect(() => {
     const storedUser = localStorage.getItem('jchat_user');
-    const storedKey = sessionStorage.getItem('jchat_session_key'); // We use SessionStorage for extra safety
-    
+    const storedKey = sessionStorage.getItem('jchat_session_key');
     if (storedUser && storedKey) {
       setUser(JSON.parse(storedUser));
       setEncryptionKey(storedKey);
     }
   }, []);
 
-  // 2. NEW LOGIN HANDLER
-  const handleLogin = async (userData: any, pass: string) => {
-    setUser(userData);
-    
-    // SECURE: Generate the high-security key (PBKDF2)
-    // We never save the raw 'pass' anywhere.
+  /* =======================
+     LOGIN / LOGOUT
+  ======================= */
+  const handleLogin = async (userData: User, pass: string) => {
     const secureKey = await deriveSessionKey(pass);
+    setUser(userData);
     setEncryptionKey(secureKey);
-    
     localStorage.setItem('jchat_user', JSON.stringify(userData));
     sessionStorage.setItem('jchat_session_key', secureKey);
   };
@@ -63,64 +75,57 @@ function App() {
   };
 
   const handleDeleteProfile = async () => {
-    if (!confirm("PERMANENTLY DELETE SERVER PROFILE? This cannot be undone.")) return;
-    
+    if (!window.confirm('PERMANENTLY DELETE SERVER PROFILE?')) return;
     await fetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', token: user?.token })
     });
-    
     handleLogout();
   };
 
+  /* =======================
+     HISTORY & ALERTS
+  ======================= */
   useEffect(() => {
-    const loadHistory = async () => {
+    const load = async () => {
       if (isConnected && user && targetId) {
-        const history = await vault.load(`chat_${targetId}`, encryptionKey);
-        if (history) setMessages(history);
+        const h = await vault.load(`chat_${targetId}`, encryptionKey);
+        if (h) setMessages(h);
       }
     };
-    loadHistory();
+    load();
   }, [isConnected, targetId, user, encryptionKey, setMessages]);
 
   useEffect(() => {
-    const saveHistory = async () => {
+    const save = async () => {
       if (isConnected && user && messages.length > 0) {
         await vault.save(`chat_${targetId}`, messages, encryptionKey);
       }
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
-    saveHistory();
+    save();
   }, [messages, isConnected, targetId, user, encryptionKey]);
 
-  // Notification Sound
-  const prevMessagesLength = useRef(messages.length);
+  const prevLen = useRef(messages.length);
   useEffect(() => {
-    if (messages.length > prevMessagesLength.current) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage && lastMessage.sender === 'them') {
+    if (messages.length > prevLen.current) {
+      if (messages[messages.length - 1].sender === 'them') {
         notificationSoundRef.current?.play().catch(() => {});
       }
     }
-    prevMessagesLength.current = messages.length;
+    prevLen.current = messages.length;
   }, [messages]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
+  /* =======================
+     HANDLERS
+  ======================= */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: FileType) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 100 * 1024 * 1024) { 
-        alert("File too large (Max 100MB)");
-        return;
-      }
+      if (file.size > 100 * 1024 * 1024) return alert('Max 100MB');
       const base64 = await blobToBase64(file);
       sendMessage(base64, type);
-    }
-  };
-
-  const handleNuke = () => {
-    if (confirm("⚠️ MUTUAL NUKE PROTOCOL ⚠️\n\nThis will wipe YOUR phone AND send a kill code to your partner's device.\n\nAre you sure?")) {
-      sendMessage('', 'NUKE_COMMAND');
     }
   };
 
@@ -130,45 +135,43 @@ function App() {
     setInputMsg('');
   };
 
-  if (!user) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
+  const handleNuke = () => {
+    if (window.confirm('⚠️ NUKE PROTOCOL: Wipe both devices?')) {
+      // ✅ This now matches the type in usePeer.ts
+      sendMessage('__NUKE__', 'NUKE_COMMAND');
+    }
+  };
+
+  /* =======================
+     UI RENDER
+  ======================= */
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
 
   if (!isConnected) {
     return (
       <div className="min-h-screen bg-black text-white p-6 flex flex-col font-mono">
-        <header className="border-b border-nothing-darkgray pb-4 flex justify-between items-end">
+        <header className="border-b border-nothing-darkgray pb-4 flex justify-between">
           <div>
             <h1 className="font-dot text-4xl">J-CHAT</h1>
             <p className="text-nothing-gray text-[10px]">ID: {user.id}</p>
-            <p className="text-nothing-gray text-[10px]">USER: {user.name}</p>
           </div>
           <div className="flex gap-4">
-             <button onClick={handleLogout} className="text-nothing-gray hover:text-nothing-red">
-                <LogOut size={20} />
-             </button>
-             <button onClick={() => navigator.clipboard.writeText(user.id)}>
-               <Copy size={20} className="text-nothing-gray hover:text-white" />
-             </button>
+            <button onClick={handleLogout}><LogOut size={20}/></button>
+            <button onClick={() => navigator.clipboard.writeText(user.id)}><Copy size={20}/></button>
           </div>
         </header>
-
         <main className="flex-1 flex flex-col justify-center gap-6">
-          <div className="space-y-2">
-            <label className="text-nothing-gray text-xs uppercase">Target ID</label>
-            <input 
-              type="text" 
-              value={targetId}
-              onChange={(e) => setTargetId(e.target.value.toUpperCase())}
-              placeholder="PASTE TARGET ID"
-              className="w-full bg-[#111] border border-nothing-darkgray rounded-nothing p-4 text-xl font-dot text-white focus:border-white outline-none"
-            />
-          </div>
+          <input 
+            value={targetId} 
+            onChange={(e) => setTargetId(e.target.value.toUpperCase())}
+            placeholder="PASTE TARGET ID"
+            className="p-4 bg-[#111] border border-nothing-darkgray text-white outline-none focus:border-white"
+          />
           <button 
             onClick={() => connectToPeer(targetId)}
-            className="h-14 bg-white text-black font-bold uppercase tracking-widest rounded-nothing hover:scale-[1.02] transition-transform"
+            className="bg-white text-black p-4 font-bold tracking-widest hover:scale-[1.02] transition"
           >
-            Initialize Link
+            INITIALIZE LINK
           </button>
         </main>
       </div>
@@ -176,10 +179,11 @@ function App() {
   }
 
   return (
-    <div className="h-[100dvh] bg-black text-white flex flex-col overflow-hidden font-mono">
-      <audio ref={notificationSoundRef} src="/notification.mp3" preload="auto"></audio>
-      
-      <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4 shrink-0 bg-black z-10">
+    <div className="h-[100dvh] bg-black text-white flex flex-col font-mono">
+      <audio ref={notificationSoundRef} src="/notification.mp3" />
+
+      {/* HEADER */}
+      <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 bg-white rounded-full animate-pulse shadow-[0_0_10px_white]" />
           <div>
@@ -192,61 +196,49 @@ function App() {
         </button>
       </header>
 
+      {/* SETTINGS MENU (Uses the 'unused' functions) */}
       <AnimatePresence>
         {showSettings && (
           <motion.div 
             initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
             className="bg-[#111] border-b border-nothing-red overflow-hidden"
           >
-             <div className="flex flex-col">
-                <button 
-                  onClick={handleNuke}
-                  className="w-full p-4 text-nothing-red font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-nothing-red hover:text-white transition-colors border-b border-nothing-darkgray"
-                >
-                  <AlertTriangle size={18} /> NUKE CHAT
-                </button>
-                <button 
-                  onClick={handleDeleteProfile}
-                  className="w-full p-4 text-gray-500 font-bold uppercase tracking-widest text-xs hover:text-white transition-colors"
-                >
-                  DELETE SERVER PROFILE
-                </button>
-            </div>
+             <button onClick={handleNuke} className="w-full p-4 text-nothing-red font-bold flex justify-center gap-2 border-b border-nothing-darkgray">
+               <AlertTriangle size={18} /> NUKE CHAT
+             </button>
+             <button onClick={handleDeleteProfile} className="w-full p-4 text-gray-500 font-bold text-xs">
+               DELETE SERVER PROFILE
+             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* CHAT AREA */}
       <main className="flex-1 overflow-y-auto p-4 scrollbar-hide">
         {messages.map((msg) => <ChatBubble key={msg.id} msg={msg} />)}
         <div ref={messagesEndRef} />
       </main>
 
-      <footer className="p-4 border-t border-nothing-darkgray bg-black shrink-0">
+      {/* FOOTER (Uses the 'unused' file inputs) */}
+      <footer className="p-4 border-t border-nothing-darkgray bg-black">
         <div className="flex items-center gap-3">
-          <label className="cursor-pointer text-nothing-gray hover:text-white transition-colors">
+          <label className="cursor-pointer text-nothing-gray hover:text-white">
             <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'image')} />
             <ImageIcon size={20} />
           </label>
-          
-          <label className="cursor-pointer text-nothing-gray hover:text-white transition-colors">
+          <label className="cursor-pointer text-nothing-gray hover:text-white">
             <input type="file" accept="video/*" className="hidden" onChange={(e) => handleFileUpload(e, 'video')} />
             <Video size={20} />
           </label>
-
           <input
-            type="text"
             value={inputMsg}
             onChange={(e) => setInputMsg(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSendText(); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
             placeholder="Message..."
-            className="flex-1 bg-transparent border-b border-nothing-darkgray py-2 text-white focus:border-white outline-none placeholder:text-nothing-darkgray"
+            className="flex-1 bg-transparent border-b border-nothing-darkgray py-2 focus:border-white outline-none"
           />
-
           {inputMsg.trim() && (
-            <button 
-              onClick={handleSendText}
-              className="p-2 bg-white text-black rounded-full"
-            >
+            <button onClick={handleSendText} className="p-2 bg-white text-black rounded-full">
               <Send size={16} />
             </button>
           )}
