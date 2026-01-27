@@ -50,12 +50,12 @@ function App() {
   // Effect for notification sound
   const prevMessagesLength = useRef(messages.length);
   useEffect(() => {
-    // Play sound only when a new message is added by the other user
     if (messages.length > prevMessagesLength.current) {
       const lastMessage = messages[messages.length - 1];
       if (lastMessage && lastMessage.sender === 'them') {
-        notificationSoundRef.current?.play().catch(e => {
-          // Browser blocked auto-play (normal behavior if user hasn't clicked yet)
+        // FIX: Removed unused 'e' variable to fix Vercel build error
+        notificationSoundRef.current?.play().catch(() => {
+          // Browser blocked auto-play
         });
       }
     }
@@ -127,7 +127,6 @@ function App() {
 
   return (
     <div className="h-[100dvh] bg-black text-white flex flex-col overflow-hidden font-mono">
-      {/* Ensure the file in /public/ is named "notification.mp3" */}
       <audio ref={notificationSoundRef} src="/notification.mp3" preload="auto"></audio>
       <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4 shrink-0 bg-black z-10">
         <div className="flex items-center gap-3">

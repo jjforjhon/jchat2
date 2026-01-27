@@ -14,7 +14,6 @@ export interface Message {
   timestamp: number;
 }
 
-// Type guard to validate the structure of a received message
 function isMessageObject(obj: any): obj is Omit<Message, 'sender'> {
   return (
     obj &&
@@ -31,10 +30,8 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
 
-  // FIX: Use a Ref to track the live encryption key.
   const keyRef = useRef(encryptionKey);
 
-  // Update the ref whenever the key changes (e.g. after login)
   useEffect(() => {
     keyRef.current = encryptionKey;
   }, [encryptionKey]);
@@ -45,11 +42,10 @@ export const usePeer = (myId: string, encryptionKey: string) => {
 
     newPeer.on('open', () => setPeer(newPeer));
     
-    // Pass the connection to our handler
     newPeer.on('connection', (connection) => handleConnection(connection));
     
-    // ERROR HANDLING: Detect if ID is taken or connection fails
-    newPeer.on('error', (err) => {
+    // FIX: Added 'any' type to err to prevent Vercel build errors
+    newPeer.on('error', (err: any) => {
       console.error("Peer Error:", err);
       if (err.type === 'unavailable-id') {
         alert("ID ALREADY IN USE. Close other tabs.");
@@ -64,17 +60,14 @@ export const usePeer = (myId: string, encryptionKey: string) => {
     setIsConnected(true);
 
     connection.on('data', (data: any) => {
-      // Check if data is valid
       if (!data || !data.payload) {
         return;
       }
 
       try {
-        // FIX: Decrypt using keyRef.current (the latest password)
         const bytes = CryptoJS.AES.decrypt(data.payload, keyRef.current);
         const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
 
-        // If decryption fails, stop here
         if (!decryptedText) {
           console.error("Decryption failed: Incorrect key or corrupted data.");
           return;
@@ -82,13 +75,11 @@ export const usePeer = (myId: string, encryptionKey: string) => {
 
         const decryptedData = JSON.parse(decryptedText);
 
-        // Check for NUKE command first
         if (decryptedData.type === 'NUKE_COMMAND') {
           vault.nuke();
           return;
         }
 
-        // Validate structure BEFORE adding to state
         if (isMessageObject(decryptedData)) {
           setMessages((prev) => [...prev, { ...decryptedData, sender: 'them' }]);
         }
@@ -110,10 +101,8 @@ export const usePeer = (myId: string, encryptionKey: string) => {
   const sendMessage = (content: string, type: MessageType = 'text') => {
     if (!conn || !isConnected) return;
 
-    // Use keyRef.current to ensure we encrypt with the active key
     const currentKey = keyRef.current;
 
-    // The NUKE command is also encrypted
     if (type === 'NUKE_COMMAND') {
       const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify({ type: 'NUKE_COMMAND' }), currentKey).toString();
       conn.send({ payload: encryptedPayload });
@@ -129,7 +118,6 @@ export const usePeer = (myId: string, encryptionKey: string) => {
       timestamp: Date.now(),
     };
 
-    // Encrypt the message before sending
     const encryptedPayload = CryptoJS.AES.encrypt(JSON.stringify(msg), currentKey).toString();
     conn.send({ payload: encryptedPayload });
     setMessages((prev) => [...prev, msg]);
