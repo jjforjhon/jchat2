@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-// ... keep your other imports (motion, lucide, usePeer, vault, ChatBubble) ...
 import { motion, AnimatePresence } from 'framer-motion';
 import { Image as ImageIcon, Video, Send, AlertTriangle, Copy, LogOut } from 'lucide-react';
 import { usePeer } from './hooks/usePeer';
 import { vault } from './utils/storage';
 import { LoginScreen } from './components/LoginScreen';
 import { ChatBubble } from './components/ChatBubble';
+// IMPORT THE NEW SECURITY TOOL
+import { deriveSessionKey } from './utils/crypto';
 
-// ... keep blobToBase64 helper ...
 const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -17,10 +17,8 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 function App() {
-  // We now store the full User Object from server
   const [user, setUser] = useState<{id: string, name: string, email: string, token: string} | null>(null);
-  const [encryptionKey, setEncryptionKey] = useState<string>(''); // Kept in memory/storage
-  
+  const [encryptionKey, setEncryptionKey] = useState<string>(''); 
   const [targetId, setTargetId] = useState('');
   const [inputMsg, setInputMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -34,10 +32,10 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSoundRef = useRef<HTMLAudioElement>(null);
 
-  // 1. SESSION PERSISTENCE (Auto-Login)
+  // 1. SESSION PERSISTENCE (SECURE)
   useEffect(() => {
     const storedUser = localStorage.getItem('jchat_user');
-    const storedKey = localStorage.getItem('jchat_key');
+    const storedKey = sessionStorage.getItem('jchat_session_key'); // We use SessionStorage for extra safety
     
     if (storedUser && storedKey) {
       setUser(JSON.parse(storedUser));
@@ -45,38 +43,40 @@ function App() {
     }
   }, []);
 
-  const handleLogin = (userData: any, pass: string) => {
+  // 2. NEW LOGIN HANDLER
+  const handleLogin = async (userData: any, pass: string) => {
     setUser(userData);
-    setEncryptionKey(pass);
     
-    // Save to local storage for persistence
+    // SECURE: Generate the high-security key (PBKDF2)
+    // We never save the raw 'pass' anywhere.
+    const secureKey = await deriveSessionKey(pass);
+    setEncryptionKey(secureKey);
+    
     localStorage.setItem('jchat_user', JSON.stringify(userData));
-    localStorage.setItem('jchat_key', pass);
+    sessionStorage.setItem('jchat_session_key', secureKey);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('jchat_user');
-    localStorage.removeItem('jchat_key');
+    sessionStorage.removeItem('jchat_session_key');
     window.location.reload();
   };
 
   const handleDeleteProfile = async () => {
     if (!confirm("PERMANENTLY DELETE SERVER PROFILE? This cannot be undone.")) return;
     
-    await fetch('http://localhost:3001/api/delete', {
+    await fetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: user?.token })
+      body: JSON.stringify({ action: 'delete', token: user?.token })
     });
     
     handleLogout();
   };
 
-  // ... [Keep existing Load/Save History Effects unchanged] ...
   useEffect(() => {
     const loadHistory = async () => {
       if (isConnected && user && targetId) {
-        // Use encryptionKey (password) to unlock local storage
         const history = await vault.load(`chat_${targetId}`, encryptionKey);
         if (history) setMessages(history);
       }
@@ -94,7 +94,7 @@ function App() {
     saveHistory();
   }, [messages, isConnected, targetId, user, encryptionKey]);
 
-  // ... [Keep Notification Effect unchanged] ...
+  // Notification Sound
   const prevMessagesLength = useRef(messages.length);
   useEffect(() => {
     if (messages.length > prevMessagesLength.current) {
@@ -106,36 +106,34 @@ function App() {
     prevMessagesLength.current = messages.length;
   }, [messages]);
 
-  // ... [Keep File Upload, Nuke, SendText functions unchanged] ...
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
-      const file = e.target.files?.[0];
-      if (file) {
-        if (file.size > 50 * 1024 * 1024) { // Update limit if you want
-          alert("File too large (Max 50MB)");
-          return;
-        }
-        const base64 = await blobToBase64(file);
-        sendMessage(base64, type);
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 100 * 1024 * 1024) { 
+        alert("File too large (Max 100MB)");
+        return;
       }
-    };
-  
-    const handleNuke = () => {
-      if (confirm("⚠️ MUTUAL NUKE PROTOCOL ⚠️\n\nThis will wipe YOUR phone AND send a kill code to your partner's device.\n\nAre you sure?")) {
-        sendMessage('', 'NUKE_COMMAND');
-      }
-    };
-  
-    const handleSendText = () => {
-      if (!inputMsg.trim()) return;
-      sendMessage(inputMsg, 'text');
-      setInputMsg('');
-    };
+      const base64 = await blobToBase64(file);
+      sendMessage(base64, type);
+    }
+  };
+
+  const handleNuke = () => {
+    if (confirm("⚠️ MUTUAL NUKE PROTOCOL ⚠️\n\nThis will wipe YOUR phone AND send a kill code to your partner's device.\n\nAre you sure?")) {
+      sendMessage('', 'NUKE_COMMAND');
+    }
+  };
+
+  const handleSendText = () => {
+    if (!inputMsg.trim()) return;
+    sendMessage(inputMsg, 'text');
+    setInputMsg('');
+  };
 
   if (!user) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  // ... [Render Logic - Update Header to show Name/Logout] ...
   if (!isConnected) {
     return (
       <div className="min-h-screen bg-black text-white p-6 flex flex-col font-mono">
@@ -156,8 +154,7 @@ function App() {
         </header>
 
         <main className="flex-1 flex flex-col justify-center gap-6">
-           {/* ... Keep Target ID Input ... */}
-           <div className="space-y-2">
+          <div className="space-y-2">
             <label className="text-nothing-gray text-xs uppercase">Target ID</label>
             <input 
               type="text" 
@@ -182,7 +179,6 @@ function App() {
     <div className="h-[100dvh] bg-black text-white flex flex-col overflow-hidden font-mono">
       <audio ref={notificationSoundRef} src="/notification.mp3" preload="auto"></audio>
       
-      {/* Header Updates */}
       <header className="h-16 border-b border-nothing-darkgray flex items-center justify-between px-4 shrink-0 bg-black z-10">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 bg-white rounded-full animate-pulse shadow-[0_0_10px_white]" />
@@ -196,7 +192,6 @@ function App() {
         </button>
       </header>
 
-      {/* Settings Menu Updates */}
       <AnimatePresence>
         {showSettings && (
           <motion.div 
@@ -221,7 +216,6 @@ function App() {
         )}
       </AnimatePresence>
 
-      {/* ... Keep Main Chat and Footer unchanged ... */}
       <main className="flex-1 overflow-y-auto p-4 scrollbar-hide">
         {messages.map((msg) => <ChatBubble key={msg.id} msg={msg} />)}
         <div ref={messagesEndRef} />
