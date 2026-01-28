@@ -6,7 +6,7 @@ import { usePeer } from './hooks/usePeer';
 function App() {
   const [profile, setProfile] = useState<any>(null);
 
-  // Clean initialization
+  // ✅ FIXED: Removed unused 'password' state
   const { isConnected, connectToPeer, sendMessage, messages, remotePeerId } = usePeer(profile?.id || '');
 
   useEffect(() => {
@@ -31,14 +31,14 @@ function App() {
   }
 
   return (
-    <div className="h-screen w-screen bg-black overflow-hidden">
+    <div className="h-screen w-screen bg-[#000000] overflow-hidden">
       {!isConnected && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-8 text-white font-mono">
-          <div className="w-full max-w-sm border border-[#333] p-8 rounded-[32px] bg-[#0a0a0a]">
+        <div className="fixed inset-0 z-50 bg-[#000000] flex flex-col items-center justify-center p-8 text-white font-mono">
+          <div className="w-full max-w-sm border border-[#262626] p-8 rounded-[32px] bg-[#0A0A0A]">
             <h2 className="text-sm font-bold tracking-[0.3em] text-[#D71920] mb-8 text-center uppercase">System Offline</h2>
             
             <p className="text-[10px] text-[#666] uppercase tracking-widest mb-2">My Identity</p>
-            <div className="bg-[#111] p-4 rounded-xl text-[10px] text-[#888] break-all border border-[#222] mb-8 font-mono select-all">
+            <div className="bg-[#121212] p-4 rounded-xl text-[10px] text-[#888] break-all border border-[#333] mb-8 font-mono select-all">
               {profile.id}
             </div>
             
@@ -48,7 +48,7 @@ function App() {
                 id="target-id-input"
                 type="text" 
                 placeholder="PASTE ID..." 
-                className="w-full bg-black border border-[#333] p-4 rounded-xl text-white text-xs focus:border-[#D71920] outline-none transition-colors"
+                className="w-full bg-[#000000] border border-[#333] p-4 rounded-xl text-white text-xs focus:border-[#D71920] outline-none transition-colors"
               />
               <button 
                 onClick={() => {
@@ -68,7 +68,7 @@ function App() {
         </div>
       )}
 
-      {/* Main Chat Interface */}
+      {/* ✅ FIXED: Removed 'myId' prop to fix the Type Error */}
       <ChatScreen 
         messages={messages} 
         onSendMessage={(text, type) => sendMessage(text, profile.name, type)}

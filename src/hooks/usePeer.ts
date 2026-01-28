@@ -3,20 +3,20 @@ import Peer, { DataConnection } from 'peerjs';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
-// --- NOTHING OS SOUND ENGINE (Oscillator) ---
-// Generates a sharp, mechanical "beep" without external files
+// --- NOTHING OS SOUND ENGINE ---
+// Generates a sharp, mechanical square-wave beep. No assets required.
 const playMechanicalSound = () => {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    osc.type = 'square'; // Industrial/8-bit sound
-    osc.frequency.setValueAtTime(440, ctx.currentTime); // A4
-    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.05); // Zip up
+    osc.type = 'square'; // Mechanical/8-bit texture
+    osc.frequency.setValueAtTime(550, ctx.currentTime); // Sharp tone
+    osc.frequency.exponentialRampToValueAtTime(1100, ctx.currentTime + 0.08); // Quick zip-up
 
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.05, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
 
     osc.connect(gain);
     gain.connect(ctx.destination);
@@ -24,7 +24,7 @@ const playMechanicalSound = () => {
     osc.start();
     osc.stop(ctx.currentTime + 0.1);
   } catch (e) {
-    console.error("Audio Engine Fail", e);
+    // Audio context might be blocked by browser until user interaction
   }
 };
 
@@ -45,9 +45,7 @@ export const usePeer = (myId: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [remotePeerId, setRemotePeerId] = useState<string>('');
 
-  // 1. Initialize Peer & Request Permissions
   useEffect(() => {
-    // Request Notification Permissions on Load
     LocalNotifications.requestPermissions();
 
     if (!myId) return;
@@ -65,13 +63,17 @@ export const usePeer = (myId: string) => {
       debug: 0
     });
 
-    newPeer.on('open', () => setPeer(newPeer));
+    // ✅ FIXED: Removed unused 'id' parameter
+    newPeer.on('open', () => {
+      setPeer(newPeer);
+    });
 
     newPeer.on('connection', (connection) => {
       handleConnection(connection);
     });
 
     newPeer.on('error', (err: any) => {
+      console.error(err);
       if (err.type === 'unavailable-id') alert("ID TAKEN.");
       else if (err.type === 'peer-unavailable') alert("TARGET NOT FOUND.");
     });
@@ -79,7 +81,6 @@ export const usePeer = (myId: string) => {
     return () => { newPeer.destroy(); };
   }, [myId]);
 
-  // 2. Handle Connection & Incoming Data
   const handleConnection = useCallback((connection: DataConnection) => {
     setConn(connection);
     setIsConnected(true);
@@ -87,35 +88,30 @@ export const usePeer = (myId: string) => {
     
     connection.on('data', async (data: any) => {
       try {
-        // NUKE COMMAND
         if (data.type === 'NUKE_COMMAND') {
-          await Haptics.vibrate({ duration: 1000 }); // Long warn vibration
+          await Haptics.vibrate({ duration: 1000 });
           localStorage.clear();
           window.location.reload();
           return;
         }
 
-        // --- INCOMING MESSAGE ALERTS ---
+        // --- INCOMING MESSAGE HANDLING ---
         if (data.sender !== 'me') {
-          // A. Audio
           playMechanicalSound();
-          
-          // B. Haptics (Light Tap)
           Haptics.impact({ style: ImpactStyle.Light });
 
-          // C. System Notification (Background/Lock Screen)
           let notificationBody = "New Encrypted Message";
-          if (data.type === 'image') notificationBody = "📷 Photo Received";
-          if (data.type === 'video') notificationBody = "📹 Video Received";
-          if (data.type === 'reaction') notificationBody = `Reaction: ${data.text.split(': ')[1]}`;
+          if (data.type === 'image') notificationBody = "📷 Photo";
+          if (data.type === 'video') notificationBody = "📹 Video";
+          if (data.type === 'reaction') notificationBody = `Reaction: ${data.text.split(': ')[1] || 'Received'}`;
 
           LocalNotifications.schedule({
             notifications: [{
-              title: `J-CHAT: ${data.senderName || 'Unknown'}`,
+              title: `J-CHAT: ${data.senderName || 'UNK'}`,
               body: notificationBody,
               id: new Date().getTime(),
-              schedule: { at: new Date(Date.now() + 100) }, // Instant
-              smallIcon: 'ic_stat_icon_config_sample', // Uses app icon by default
+              schedule: { at: new Date(Date.now() + 100) },
+              smallIcon: 'ic_stat_icon_config_sample',
               actionTypeId: "",
               extra: null
             }]
@@ -123,9 +119,7 @@ export const usePeer = (myId: string) => {
         }
 
         setMessages((prev) => [...prev, { ...data, sender: 'them' }]);
-      } catch (err) { 
-        console.error("Receive Error", err);
-      }
+      } catch (err) { }
     });
 
     connection.on('close', () => {

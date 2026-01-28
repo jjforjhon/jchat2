@@ -4,6 +4,7 @@ import { Message } from '../hooks/usePeer';
 
 const REACTIONS = ["😊","😂","❤️","😍","😘","💕","👌","😒","🥲","🙂","😑","😶‍🌫️","🫡"];
 
+// ✅ FIXED: Removed 'myId' from Props to stop the App.tsx error
 interface ChatProps {
   messages: Message[];
   onSendMessage: (text: string, type: 'text' | 'image' | 'video' | 'reaction') => void;
@@ -42,22 +43,23 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
     reader.readAsDataURL(file);
   };
 
+  // ✅ FIXED: This function is now properly used in the reaction buttons
   const handleReaction = (emoji: string) => {
     onSendMessage(`REACTED: ${emoji}`, 'reaction'); 
     setSelectedMessageId(null);
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#050505] text-[#E1E1E1] font-mono selection:bg-[#D71920] selection:text-white" onClick={() => setSelectedMessageId(null)}>
+    <div className="flex flex-col h-screen bg-[#000000] text-white font-mono selection:bg-[#D71920] selection:text-white" onClick={() => setSelectedMessageId(null)}>
       
-      {/* --- NOTHING OS HEADER (High Contrast) --- */}
-      <div className="pt-8 pb-4 px-6 bg-[#050505] z-10 flex justify-between items-end border-b border-[#333333]">
+      {/* --- NOTHING OS HEADER --- */}
+      <div className="pt-10 pb-4 px-6 bg-[#000000] z-10 flex justify-between items-end border-b border-[#262626]">
         <div>
-          <h2 className="text-3xl font-bold tracking-tighter uppercase leading-none text-white">J-CHAT</h2>
+          <h2 className="text-3xl font-bold tracking-tighter uppercase leading-none">J-CHAT</h2>
           <div className="flex items-center gap-2 mt-2">
-            <div className={`w-2 h-2 rounded-full ${targetId ? 'bg-[#D71920]' : 'bg-[#444] animate-pulse'}`} />
-            <p className="text-[10px] tracking-[0.2em] text-[#888] uppercase">
-              {targetId ? `LINKED :: ${targetId.slice(0,6)}...` : 'SEARCHING...'}
+            <div className={`w-2 h-2 rounded-full ${targetId ? 'bg-[#D71920]' : 'bg-[#333] animate-pulse'}`} />
+            <p className="text-[10px] tracking-[0.2em] text-[#808080] uppercase">
+              {targetId ? `LINKED :: ${targetId.slice(0,6)}...` : 'SEARCHING SIGNAL...'}
             </p>
           </div>
         </div>
@@ -82,17 +84,18 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
             {/* BUBBLE CONTAINER */}
             <div className="relative group">
               <motion.div 
-                initial={{ opacity: 0, y: 5 }} 
+                initial={{ opacity: 0, y: 10 }} 
                 animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }} // Mechanical motion
                 onClick={(e) => {
                   e.stopPropagation(); 
                   setSelectedMessageId(selectedMessageId === msg.id ? null : msg.id);
                 }}
                 className={`
-                  relative max-w-[85vw] p-3 cursor-pointer border transition-all duration-200
+                  relative max-w-[85vw] p-4 cursor-pointer border transition-all duration-200
                   ${msg.sender === 'me' 
-                    ? 'bg-[#1A1A1A] border-[#333] rounded-[18px] rounded-tr-sm text-white' 
-                    : 'bg-[#000000] border-[#333] rounded-[18px] rounded-tl-sm text-[#E1E1E1]'}
+                    ? 'bg-[#1F1F1F] border-[#333] rounded-[20px] rounded-tr-sm text-white' 
+                    : 'bg-[#000000] border-[#333] rounded-[20px] rounded-tl-sm text-white'}
                   ${msg.type === 'reaction' ? 'bg-transparent border-none p-0' : ''}
                   ${selectedMessageId === msg.id ? 'border-[#D71920]' : ''}
                 `}
@@ -102,7 +105,7 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
                 
                 {/* REACTION TEXT STYLE */}
                 {msg.type === 'reaction' && (
-                  <div className="flex items-center gap-2 opacity-70">
+                  <div className="flex items-center gap-2 opacity-75">
                     <div className="w-1 h-1 bg-[#D71920] rounded-full"></div>
                     <p className="text-xs uppercase tracking-widest font-bold">{msg.text}</p>
                   </div>
@@ -117,12 +120,12 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
                       e.stopPropagation();
                       setFullScreenMedia(msg.text);
                     }}
-                    className="w-full max-h-[300px] object-cover rounded-md border border-[#333]" 
+                    className="w-full max-h-[300px] object-cover rounded-lg border border-[#333]" 
                   />
                 )}
                 
                 {msg.type === 'video' && (
-                  <video src={msg.text} controls className="w-full max-h-[300px] rounded-md border border-[#333]" />
+                  <video src={msg.text} controls className="w-full max-h-[300px] rounded-lg border border-[#333]" />
                 )}
 
               </motion.div>
@@ -134,10 +137,11 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
                     initial={{ scale: 0.9, opacity: 0, y: 10 }}
                     animate={{ scale: 1, opacity: 1, y: 0 }}
                     exit={{ scale: 0.9, opacity: 0 }}
+                    transition={{ duration: 0.15, ease: "linear" }}
                     className={`
-                      absolute z-50 bottom-full mb-3 
-                      flex gap-1 p-2 bg-[#111] border border-[#444] rounded-full
-                      shadow-[0_4px_20px_rgba(0,0,0,0.8)] overflow-x-auto max-w-[280px] scrollbar-hide
+                      absolute z-50 bottom-full mb-2 
+                      flex gap-1 p-2 bg-[#121212] border border-[#333] rounded-full
+                      shadow-[0_4px_20px_rgba(0,0,0,1)] overflow-x-auto max-w-[280px] scrollbar-hide
                       ${msg.sender === 'me' ? 'right-0' : 'left-0'}
                     `}
                     onClick={(e) => e.stopPropagation()} 
@@ -148,7 +152,7 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
                         onClick={() => handleReaction(emoji)}
                         className="
                           w-8 h-8 flex items-center justify-center text-lg rounded-full 
-                          hover:bg-[#333] active:scale-90 transition-all
+                          hover:bg-[#262626] active:scale-90 transition-all
                         "
                       >
                         {emoji}
@@ -160,7 +164,7 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
             </div>
 
             {/* TIMESTAMP */}
-            <span className="text-[9px] text-[#555] mt-1 font-bold tracking-widest">
+            <span className="text-[9px] text-[#444] mt-1 font-bold tracking-widest">
               {new Date(msg.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>
@@ -173,7 +177,7 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
         {fullScreenMedia && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/98 z-[999] flex items-center justify-center p-0"
+            className="fixed inset-0 bg-black z-[999] flex items-center justify-center"
             onClick={() => setFullScreenMedia(null)}
           >
             <img src={fullScreenMedia} className="max-w-full max-h-full" />
@@ -182,8 +186,8 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
         )}
       </AnimatePresence>
 
-      {/* --- INPUT BAR (High Visibility) --- */}
-      <div className="p-4 bg-[#050505] border-t border-[#333333]" onClick={(e) => e.stopPropagation()}>
+      {/* --- INPUT BAR --- */}
+      <div className="p-4 bg-[#000000] border-t border-[#262626]" onClick={(e) => e.stopPropagation()}>
         
         {/* Attachment Drawer */}
         <AnimatePresence>
@@ -192,6 +196,7 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
               initial={{ height: 0, opacity: 0 }} 
               animate={{ height: 'auto', opacity: 1 }} 
               exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
               className="overflow-hidden mb-4"
             >
               <button 
@@ -199,10 +204,10 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
                 className="
                   w-full py-4 border border-dashed border-[#444] rounded-[12px]
                   text-[#888] text-xs uppercase tracking-[0.2em] 
-                  hover:bg-[#111] hover:border-[#666] transition-all
+                  hover:bg-[#121212] hover:border-[#fff] transition-all
                 "
               >
-                [ + Upload Media ]
+                [ + UPLOAD MEDIA ]
               </button>
             </motion.div>
           )}
@@ -221,7 +226,7 @@ export const ChatScreen = ({ messages, onSendMessage, onNuke, targetId }: ChatPr
             <span className="text-xl font-light mb-1">+</span>
           </button>
           
-          <div className="flex-1 bg-[#111] rounded-full px-5 py-3 border border-[#333] focus-within:border-[#888] transition-colors">
+          <div className="flex-1 bg-[#121212] rounded-full px-5 py-3 border border-[#333] focus-within:border-[#fff] transition-colors">
             <input 
               type="text" 
               value={input} 
