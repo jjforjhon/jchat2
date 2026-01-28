@@ -85,12 +85,10 @@ export const ChatScreen = ({ messages, onSendMessage, onClear, onUnlink, targetI
     reader.readAsDataURL(file);
   };
 
-  // ✅ FIXED: Android-Proof Recording Logic
+  // ✅ ANDROID-PROOF RECORDING
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Check what the phone supports
       let mimeType = 'audio/webm';
       if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
       else if (MediaRecorder.isTypeSupported('audio/aac')) mimeType = 'audio/aac';
@@ -104,22 +102,19 @@ export const ChatScreen = ({ messages, onSendMessage, onClear, onUnlink, targetI
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: mimeType }); // Use the correct type
+        const blob = new Blob(chunks, { type: mimeType });
         const reader = new FileReader();
         reader.onload = () => {
           onSendMessage(reader.result as string, 'audio');
         };
         reader.readAsDataURL(blob);
-        
-        // Kill the mic stream to release hardware
         stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err: any) {
-      // Show the REAL error
-      alert(`MIC ERROR: ${err.name} - ${err.message}`);
+      alert(`MIC ERROR: ${err.name}`);
     }
   };
 
@@ -179,7 +174,18 @@ export const ChatScreen = ({ messages, onSendMessage, onClear, onUnlink, targetI
                 )}
               </AnimatePresence>
             </div>
-            <span className="text-[9px] text-[#444] mt-1 font-bold tracking-widest font-mono">{new Date(msg.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+            
+            {/* ✅ STATUS INDICATOR (TIMESTAMP + PENDING ICON) */}
+            <div className="flex items-center gap-1 mt-1 justify-end w-full">
+                <span className="text-[9px] text-[#444] font-bold tracking-widest font-mono">
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                </span>
+                {msg.sender === 'me' && (
+                     <span className="text-[8px] text-[#D71920]">
+                        {msg.status === 'pending' ? '⏳' : ''}
+                    </span>
+                )}
+            </div>
           </div>
         ))}
         <div ref={messagesEndRef} />

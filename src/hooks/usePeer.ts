@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Peer, { DataConnection } from 'peerjs';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
+// --- SOUND ENGINE ---
 const playMechanicalSound = () => {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -26,16 +27,17 @@ export interface Message {
   sender: 'me' | 'them';
   senderName?: string;
   timestamp: number;
-  // ✅ ADDED 'audio' type
   type: 'text' | 'image' | 'video' | 'audio' | 'reaction' | 'NUKE_COMMAND';
-  reactions?: string[];
+  status: 'sent' | 'pending'; // ✅ ADDED STATUS
 }
 
 export const usePeer = (myId: string) => {
   const [peer, setPeer] = useState<Peer | null>(null);
   const [conn, setConn] = useState<DataConnection | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const connRef = useRef<DataConnection | null>(null); // Ref for instant access
   
+  // Load History
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('jchat_history');
     return saved ? JSON.parse(saved) : [];
@@ -45,10 +47,33 @@ export const usePeer = (myId: string) => {
     return localStorage.getItem('last_target_id') || '';
   });
 
+  // Save History whenever it changes
   useEffect(() => {
     localStorage.setItem('jchat_history', JSON.stringify(messages));
   }, [messages]);
 
+  // Keep Ref updated (to solve stale closure issues)
+  useEffect(() => {
+    connRef.current = conn;
+    
+    // ✅ SYNC LOGIC: If we just connected, look for PENDING messages and send them
+    if (isConnected && conn) {
+      const pending = messages.filter(m => m.sender === 'me' && m.status === 'pending');
+      if (pending.length > 0) {
+        console.log(` flushing ${pending.length} pending messages...`);
+        pending.forEach(msg => {
+          conn.send({ ...msg, status: 'sent' }); // Send
+        });
+        
+        // Mark them as sent locally
+        setMessages(prev => prev.map(m => 
+          m.status === 'pending' ? { ...m, status: 'sent' } : m
+        ));
+      }
+    }
+  }, [conn, isConnected]);
+
+  // Notifications Setup
   useEffect(() => {
     const setupNotifications = async () => {
       await LocalNotifications.requestPermissions();
@@ -62,6 +87,7 @@ export const usePeer = (myId: string) => {
     setupNotifications();
   }, []);
 
+  // Initialize Peer
   useEffect(() => {
     if (!myId) return;
     const newPeer = new Peer(myId, {
@@ -87,6 +113,11 @@ export const usePeer = (myId: string) => {
     setRemotePeerId(connection.peer);
     localStorage.setItem('last_target_id', connection.peer);
 
+    connection.on('open', () => {
+      setIsConnected(true);
+      // The useEffect above will catch this state change and trigger the "Flush"
+    });
+
     connection.on('data', async (data: any) => {
       try {
         if (data.type === 'NUKE_COMMAND') {
@@ -102,8 +133,7 @@ export const usePeer = (myId: string) => {
           
           let notificationBody = "New Encrypted Message";
           if (data.type === 'image') notificationBody = "📷 Photo";
-          if (data.type === 'video') notificationBody = "📹 Video";
-          if (data.type === 'audio') notificationBody = "🎙️ Voice Message"; // ✅ Audio Alert
+          if (data.type === 'audio') notificationBody = "🎙️ Voice Note";
           if (data.type === 'reaction') notificationBody = `Reaction: ${data.text.split(': ')[1]}`;
 
           await LocalNotifications.schedule({
@@ -117,7 +147,11 @@ export const usePeer = (myId: string) => {
             }]
           });
         }
-        setMessages((prev) => [...prev, { ...data, sender: 'them' }]);
+        setMessages((prev) => {
+            // Avoid duplicates if sync sends it twice
+            if (prev.find(m => m.id === data.id)) return prev;
+            return [...prev, { ...data, sender: 'them' }];
+        });
       } catch (err) {}
     });
 
@@ -125,26 +159,40 @@ export const usePeer = (myId: string) => {
       setIsConnected(false);
       setConn(null);
     });
-  }, []);
+  }, [messages]); // Dependency on messages to ensure we don't lose state
 
   const connectToPeer = (targetId: string, activePeer = peer) => {
     if (!activePeer) return alert("NOT READY");
     if (!targetId) return;
     const connection = activePeer.connect(targetId, { reliable: true });
-    connection.on('open', () => handleConnection(connection));
-    setRemotePeerId(targetId);
-    localStorage.setItem('last_target_id', targetId);
+    handleConnection(connection);
   };
 
   const sendMessage = (content: string, userName: string, type: 'text' | 'image' | 'video' | 'audio' | 'reaction' | 'NUKE_COMMAND' = 'text') => {
+    const msgId = crypto.randomUUID();
+    
+    // 1. Create the message object
+    const msg: Message = {
+      id: msgId, 
+      text: content, 
+      sender: 'me', 
+      senderName: userName,
+      timestamp: Date.now(), 
+      type, 
+      status: (conn && isConnected) ? 'sent' : 'pending' // ✅ DECIDE STATUS
+    };
+
+    // 2. Try to send if connected
     if (conn && isConnected) {
-      const msg: Message = {
-        id: crypto.randomUUID(), text: content, sender: 'me', senderName: userName,
-        timestamp: Date.now(), type, reactions: []
-      };
-      conn.send(msg); 
-      setMessages((prev) => [...prev, msg]);
+      try {
+        conn.send(msg);
+      } catch (e) {
+        msg.status = 'pending'; // Fallback to pending if send fails
+      }
     }
+
+    // 3. Save locally (Always save, even if pending)
+    setMessages((prev) => [...prev, msg]);
   };
 
   const clearHistory = () => {
