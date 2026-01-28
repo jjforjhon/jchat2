@@ -6,7 +6,6 @@ import { usePeer } from './hooks/usePeer';
 function App() {
   const [profile, setProfile] = useState<any>(null);
 
-  // ✅ Extract new functions from hook
   const { isConnected, connectToPeer, sendMessage, messages, remotePeerId, clearHistory, unlinkConnection } = usePeer(profile?.id || '');
 
   useEffect(() => {
@@ -30,14 +29,11 @@ function App() {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  // ✅ Show connection screen ONLY if we are NOT connected AND we don't have a saved peer to auto-connect to
-  // (The hook handles auto-connect, so we check if remotePeerId is empty)
   const isWaitingForAutoConnect = !isConnected && localStorage.getItem('last_target_id');
 
   return (
     <div className="h-screen w-screen bg-[#000000] overflow-hidden">
       
-      {/* If not connected and NOT auto-reconnecting, show search box */}
       {!isConnected && !isWaitingForAutoConnect && (
         <div className="fixed inset-0 z-50 bg-[#000000] flex flex-col items-center justify-center p-8 text-white font-mono">
           <div className="w-full max-w-sm border border-[#262626] p-8 rounded-[32px] bg-[#0A0A0A]">
@@ -74,13 +70,12 @@ function App() {
         </div>
       )}
 
-      {/* Main Chat Interface */}
+      {/* ✅ FIXED: Removed 'onNuke' property from here */}
       <ChatScreen 
         messages={messages} 
         onSendMessage={(text, type) => sendMessage(text, profile.name, type)}
-        onClear={clearHistory}   // ✅ Pass clear function
-        onUnlink={unlinkConnection} // ✅ Pass unlink function
-        onNuke={handleAppNuke} // Keeping this for total reset
+        onClear={clearHistory}
+        onUnlink={unlinkConnection}
         targetId={remotePeerId}
       />
     </div>

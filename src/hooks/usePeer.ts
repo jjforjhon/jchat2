@@ -26,7 +26,8 @@ export interface Message {
   sender: 'me' | 'them';
   senderName?: string;
   timestamp: number;
-  type: 'text' | 'image' | 'video' | 'reaction' | 'NUKE_COMMAND';
+  // ✅ ADDED 'audio' type
+  type: 'text' | 'image' | 'video' | 'audio' | 'reaction' | 'NUKE_COMMAND';
   reactions?: string[];
 }
 
@@ -35,23 +36,19 @@ export const usePeer = (myId: string) => {
   const [conn, setConn] = useState<DataConnection | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   
-  // 1. Load History
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('jchat_history');
     return saved ? JSON.parse(saved) : [];
   });
   
-  // 2. Load Last Connected Peer (For Auto-Reconnect)
   const [remotePeerId, setRemotePeerId] = useState<string>(() => {
     return localStorage.getItem('last_target_id') || '';
   });
 
-  // Save History
   useEffect(() => {
     localStorage.setItem('jchat_history', JSON.stringify(messages));
   }, [messages]);
 
-  // Setup Notifications
   useEffect(() => {
     const setupNotifications = async () => {
       await LocalNotifications.requestPermissions();
@@ -65,7 +62,6 @@ export const usePeer = (myId: string) => {
     setupNotifications();
   }, []);
 
-  // Initialize Peer
   useEffect(() => {
     if (!myId) return;
     const newPeer = new Peer(myId, {
@@ -76,13 +72,8 @@ export const usePeer = (myId: string) => {
 
     newPeer.on('open', () => {
       setPeer(newPeer);
-      // ✅ AUTO-RECONNECT LOGIC
-      // If we have a saved ID, try to connect immediately
       const savedTarget = localStorage.getItem('last_target_id');
-      if (savedTarget) {
-        console.log("Auto-reconnecting to:", savedTarget);
-        connectToPeer(savedTarget, newPeer);
-      }
+      if (savedTarget) connectToPeer(savedTarget, newPeer);
     });
 
     newPeer.on('connection', (connection) => handleConnection(connection));
@@ -94,14 +85,11 @@ export const usePeer = (myId: string) => {
     setConn(connection);
     setIsConnected(true);
     setRemotePeerId(connection.peer);
-    
-    // ✅ Save this connection for next time
     localStorage.setItem('last_target_id', connection.peer);
 
     connection.on('data', async (data: any) => {
       try {
         if (data.type === 'NUKE_COMMAND') {
-          // If other user unlinks, we just get notified, we don't necessarily wipe unless intended
           alert("PEER UNLINKED.");
           setIsConnected(false);
           setConn(null);
@@ -115,6 +103,7 @@ export const usePeer = (myId: string) => {
           let notificationBody = "New Encrypted Message";
           if (data.type === 'image') notificationBody = "📷 Photo";
           if (data.type === 'video') notificationBody = "📹 Video";
+          if (data.type === 'audio') notificationBody = "🎙️ Voice Message"; // ✅ Audio Alert
           if (data.type === 'reaction') notificationBody = `Reaction: ${data.text.split(': ')[1]}`;
 
           await LocalNotifications.schedule({
@@ -133,7 +122,6 @@ export const usePeer = (myId: string) => {
     });
 
     connection.on('close', () => {
-      // Don't remove ID here, so we can try reconnecting later (Telegram style)
       setIsConnected(false);
       setConn(null);
     });
@@ -142,16 +130,13 @@ export const usePeer = (myId: string) => {
   const connectToPeer = (targetId: string, activePeer = peer) => {
     if (!activePeer) return alert("NOT READY");
     if (!targetId) return;
-    
     const connection = activePeer.connect(targetId, { reliable: true });
     connection.on('open', () => handleConnection(connection));
-    
-    // Explicitly set this as our target so we remember them
     setRemotePeerId(targetId);
     localStorage.setItem('last_target_id', targetId);
   };
 
-  const sendMessage = (content: string, userName: string, type: 'text' | 'image' | 'video' | 'reaction' | 'NUKE_COMMAND' = 'text') => {
+  const sendMessage = (content: string, userName: string, type: 'text' | 'image' | 'video' | 'audio' | 'reaction' | 'NUKE_COMMAND' = 'text') => {
     if (conn && isConnected) {
       const msg: Message = {
         id: crypto.randomUUID(), text: content, sender: 'me', senderName: userName,
@@ -162,7 +147,6 @@ export const usePeer = (myId: string) => {
     }
   };
 
-  // ✅ ACTION: CLEAR HISTORY (Keep Connection)
   const clearHistory = () => {
     if(confirm("CLEAR LOCAL HISTORY?")) {
       setMessages([]);
@@ -170,24 +154,15 @@ export const usePeer = (myId: string) => {
     }
   };
 
-  // ✅ ACTION: UNLINK (Kill Connection & Auto-Connect)
   const unlinkConnection = () => {
     if(confirm("PERMANENTLY UNLINK?")) {
       if(conn) conn.close();
-      localStorage.removeItem('last_target_id'); // Stop auto-reconnect
+      localStorage.removeItem('last_target_id');
       setRemotePeerId('');
       setIsConnected(false);
       setConn(null);
     }
   };
 
-  return { 
-    isConnected, 
-    connectToPeer, 
-    sendMessage, 
-    messages, 
-    remotePeerId,
-    clearHistory, // Exported
-    unlinkConnection // Exported
-  };
+  return { isConnected, connectToPeer, sendMessage, messages, remotePeerId, clearHistory, unlinkConnection };
 };
