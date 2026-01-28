@@ -14,8 +14,7 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
     e.preventDefault();
     setError('');
     
-    // Auto-detects the /api folder
-    const API_URL = '/api/auth'; 
+   const API_URL = 'https://jchat2new.vercel.app/api/auth';
 
     try {
       const res = await fetch(API_URL, {
