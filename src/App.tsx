@@ -3,8 +3,14 @@ import { LoginScreen } from './components/LoginScreen';
 import { ChatScreen } from './components/ChatScreen';
 import { usePeer } from './hooks/usePeer';
 
+interface Profile {
+  id: string;
+  name: string;
+  avatar: string;
+}
+
 function App() {
-  const [profile, setProfile] = useState<{ id: string; name: string; avatar: string } | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
 
   const { 
     isConnected, 
@@ -22,16 +28,18 @@ function App() {
     if (saved) setProfile(JSON.parse(saved));
   }, []);
 
-  const handleLogin = (user: { id: string; name: string; avatar: string }) => {
+  const handleLogin = (user: Profile) => {
     setProfile(user);
     localStorage.setItem('chat_profile', JSON.stringify(user));
   };
 
-  const handleAppNuke = async () => {
-    if (!confirm('DESTROY IDENTITY AND RESET APP?')) return;
-    localStorage.clear();
-    setProfile(null);
-    window.location.reload();
+  const handleUpdateProfile = (newProfile: Profile) => {
+    setProfile(newProfile);
+    localStorage.setItem('chat_profile', JSON.stringify(newProfile));
+    // In a real P2P app, we'd also send a "PROFILE_UPDATE" signal here
+    // But since usePeer watches 'profile', it will update locally.
+    // To sync instantly, we'd need to trigger a re-broadcast in usePeer (advanced), 
+    // but for now, it updates your view and sends correctly on next message.
   };
 
   if (!profile) {
@@ -41,7 +49,7 @@ function App() {
   const showSearchScreen = !isConnected && !remotePeerId;
 
   return (
-    <div className="h-screen w-screen bg-black overflow-hidden">
+    <div className="h-[100dvh] w-screen bg-black overflow-hidden">
       
       {showSearchScreen && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-8 text-white font-mono">
@@ -52,7 +60,7 @@ function App() {
                <div className="w-16 h-16 rounded-full border border-[#333] mb-2 overflow-hidden">
                   {profile.avatar && <img src={profile.avatar} className="w-full h-full object-cover"/>}
                </div>
-               <p className="text-[10px] text-[#666] uppercase tracking-widest">My Identity: {profile.id}</p>
+               <p className="text-[10px] text-[#666] uppercase tracking-widest">Identity: {profile.id}</p>
             </div>
             
             <div className="space-y-4">
@@ -73,10 +81,6 @@ function App() {
                 Initialize
               </button>
             </div>
-
-            <button onClick={handleAppNuke} className="mt-8 w-full text-center text-[#333] text-[10px] uppercase tracking-widest hover:text-red-600">
-              [ Destroy Session ]
-            </button>
           </div>
         </div>
       )}
@@ -86,8 +90,10 @@ function App() {
         onSendMessage={(text, type) => sendMessage(text, type)}
         onClear={clearHistory}
         onUnlink={unlinkConnection}
+        onUpdateProfile={handleUpdateProfile}
         targetId={remotePeerId}
         remoteProfile={remoteProfile}
+        myProfile={profile}
       />
     </div>
   );
