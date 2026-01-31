@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 
+// ✅ Matches App.tsx expectation
 interface LoginProps {
   onLogin: (user: { id: string; name: string; avatar: string }) => void;
 }
@@ -20,13 +21,12 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
     if (file) {
       const reader = new FileReader();
       reader.onload = (ev) => {
-        // Simple compression by creating an image and resizing if needed
         const img = new Image();
         img.src = ev.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
-          const maxWidth = 150; // Thumbnail size
+          const maxWidth = 150; 
           const scale = maxWidth / img.width;
           canvas.width = maxWidth;
           canvas.height = img.height * scale;
@@ -47,7 +47,7 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
     onLogin({ 
       id: finalId, 
       name: finalName, 
-      avatar: avatar || '' // Empty string if no avatar
+      avatar: avatar || '' 
     });
   };
 

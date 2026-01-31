@@ -12,6 +12,7 @@ interface Profile {
 function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
 
+  // ✅ Wiring is now correct: usePeer accepts the profile object
   const { 
     isConnected, 
     connectToPeer, 
@@ -21,8 +22,8 @@ function App() {
     clearHistory, 
     unlinkConnection,
     remoteProfile,
-    isConnectionBroken, // NEW
-    retryConnection     // NEW
+    isConnectionBroken, 
+    retryConnection     
   } = usePeer(profile || { id: '', name: '', avatar: '' });
 
   useEffect(() => {
@@ -76,8 +77,8 @@ function App() {
         targetId={remotePeerId}
         remoteProfile={remoteProfile}
         myProfile={profile}
-        isConnectionBroken={isConnectionBroken} // NEW
-        onRetryConnection={retryConnection}     // NEW
+        isConnectionBroken={isConnectionBroken} 
+        onRetryConnection={retryConnection}     
       />
     </div>
   );

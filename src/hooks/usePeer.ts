@@ -9,7 +9,7 @@ export interface Message {
   text: string;
   sender: 'me' | 'them';
   senderName?: string;
-  senderAvatar?: string;
+  senderAvatar?: string; // ✅ Added this to fix ChatScreen error
   timestamp: number;
   type: 'text' | 'image' | 'video' | 'audio' | 'reaction';
   status: 'sent' | 'pending';
@@ -21,9 +21,10 @@ interface Profile {
   avatar: string;
 }
 
+// ✅ Accepts entire Profile object now
 export const usePeer = (myProfile: Profile) => {
   const [isConnected, setIsConnected] = useState(false);
-  const [isConnectionBroken, setIsConnectionBroken] = useState(false); // 🚨 NEW STATE
+  const [isConnectionBroken, setIsConnectionBroken] = useState(false);
   const [remoteProfile, setRemoteProfile] = useState<{name: string, avatar: string} | null>(null);
   
   const peerRef = useRef<Peer | null>(null);
@@ -50,7 +51,7 @@ export const usePeer = (myProfile: Profile) => {
     console.log(`🔗 Connected: ${connection.peer}`);
     connRef.current = connection;
     setIsConnected(true);
-    setIsConnectionBroken(false); // ✅ Clear broken state on success
+    setIsConnectionBroken(false);
     setRemotePeerId(connection.peer);
     localStorage.setItem('last_target_id', connection.peer);
 
@@ -102,29 +103,23 @@ export const usePeer = (myProfile: Profile) => {
 
     newPeer.on('open', () => {
       peerRef.current = newPeer;
-      // Note: We do NOT auto-connect here anymore. We wait for user action if broken.
     });
 
     newPeer.on('connection', handleConnection);
     newPeer.on('error', (err) => console.log('Peer Error', err));
   }, [myProfile.id, handleConnection]);
 
-  // 4. BROKEN LINK DETECTOR (The Fix)
+  // 4. BROKEN LINK DETECTOR
   useEffect(() => {
     initializePeer();
-    
     const sub = App.addListener('appStateChange', ({ isActive }) => {
       if (isActive) {
-        console.log("📱 App Resumed: Checking Link Integrity...");
-        
-        // Check if we *should* be connected but aren't
+        console.log("📱 App Resumed");
         const lastTarget = localStorage.getItem('last_target_id');
-        
         if (lastTarget) {
-          // If connection object is missing OR not open
           if (!connRef.current || !connRef.current.open) {
             console.log("⚠️ Broken Link Detected!");
-            setIsConnectionBroken(true); // 🔥 TRIGGER POPUP
+            setIsConnectionBroken(true);
           }
         }
       }
@@ -132,17 +127,15 @@ export const usePeer = (myProfile: Profile) => {
     return () => { sub.then(s => s.remove()); };
   }, [initializePeer]);
 
-  // 5. MANUAL RECONNECT (Called by Popup)
+  // 5. MANUAL RECONNECT
   const retryConnection = () => {
     const lastTarget = localStorage.getItem('last_target_id');
     if (!lastTarget) return;
 
-    console.log("🛠️ Manual Re-Initialize...");
     if (peerRef.current && !peerRef.current.destroyed) {
       const c = peerRef.current.connect(lastTarget, { reliable: true });
       handleConnection(c);
     } else {
-      // If peer is dead too, restart everything
       initializePeer();
       setTimeout(() => {
         if (peerRef.current) {

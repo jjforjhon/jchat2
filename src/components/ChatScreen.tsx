@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Message } from '../hooks/usePeer';
 
-const REACTIONS = ["😊","😂","❤️","😍","😘","💕","👌","😒","🥲","🙂","😑","😶‍🌫️","🫡"];
+// Removed unused REACTIONS variable to fix warning
 
 interface Profile {
   id: string;
@@ -16,11 +16,11 @@ interface ChatProps {
   onClear: () => void;
   onUnlink: () => void;
   onUpdateProfile: (newProfile: Profile) => void;
-  onRetryConnection: () => void; // NEW PROP
+  onRetryConnection: () => void;
   targetId: string;
   remoteProfile: { name: string, avatar: string } | null;
   myProfile: Profile;
-  isConnectionBroken: boolean; // NEW PROP
+  isConnectionBroken: boolean;
 }
 
 const MinimalAudioPlayer = ({ src, isSender }: { src: string, isSender: boolean }) => {
@@ -56,6 +56,8 @@ export const ChatScreen = ({ messages, onSendMessage, onClear, onUnlink, onUpdat
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const REACTIONS = ["😊","😂","❤️","😍","😘","💕","👌","😒","🥲","🙂","😑","😶‍🌫️","🫡"];
 
   useEffect(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages]);
 
@@ -172,6 +174,13 @@ export const ChatScreen = ({ messages, onSendMessage, onClear, onUnlink, onUpdat
                     {msg.type === 'image' && <img src={msg.text} onClick={(e) => { e.stopPropagation(); setFullScreenMedia({url: msg.text, type: 'image'}); }} className="w-full max-h-[250px] object-cover rounded-lg border border-[#333]" />}
                     {msg.type === 'video' && <div className="relative" onClick={(e) => { e.stopPropagation(); setFullScreenMedia({url: msg.text, type: 'video'}); }}><video src={msg.text} className="w-full max-h-[250px] rounded-lg border border-[#333] bg-black" /><div className="absolute inset-0 flex items-center justify-center bg-black/20"><span className="text-2xl text-white">▶</span></div></div>}
                   </motion.div>
+                  <AnimatePresence>
+                    {selectedMessageId === msg.id && (
+                      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className={`absolute z-50 bottom-full mb-2 flex gap-1 p-2 bg-[#121212] border border-[#333] rounded-full shadow-lg overflow-x-auto max-w-[280px] scrollbar-hide ${msg.sender === 'me' ? 'right-0' : 'left-0'}`}>
+                        {REACTIONS.map((emoji) => <button key={emoji} onClick={() => { onSendMessage(`REACTED: ${emoji}`, 'reaction'); setSelectedMessageId(null); }} className="w-8 h-8 flex items-center justify-center text-lg rounded-full hover:bg-[#262626]">{emoji}</button>)}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
                 <div className={`flex items-center gap-1 mt-1 w-full ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
                     <span className="text-[9px] text-[#444] font-bold tracking-widest font-mono">{new Date(msg.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
@@ -184,7 +193,7 @@ export const ChatScreen = ({ messages, onSendMessage, onClear, onUnlink, onUpdat
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 🚨 BROKEN CONNECTION ALERT POPUP */}
+      {/* BROKEN CONNECTION ALERT */}
       <AnimatePresence>
         {isConnectionBroken && (
           <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-6">
