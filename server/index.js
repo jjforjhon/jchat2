@@ -1,54 +1,74 @@
 const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
-const admin = require('firebase-admin');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. DATABASE (Creates 'dead_drop.sqlite' file automatically)
+// DATABASE
 const db = new Database('dead_drop.sqlite');
 db.exec(`
   CREATE TABLE IF NOT EXISTS queue (
     id TEXT PRIMARY KEY,
-    to_user TEXT,
-    payload TEXT,
-    timestamp INTEGER
+    to_user TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS idx_to_user ON queue(to_user);
+  CREATE INDEX IF NOT EXISTS idx_time ON queue(timestamp);
 `);
 
-// 2. SEND MESSAGE (Save to DB)
+// TTL CLEANUP (1 hour)
+setInterval(() => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  db.prepare('DELETE FROM queue WHERE timestamp < ?').run(cutoff);
+}, 10 * 60 * 1000);
+
+// SEND
 app.post('/queue/send', (req, res) => {
   const { toUserId, message } = req.body;
+  if (!toUserId || !message || !message.id) return res.sendStatus(400);
+
   try {
-    const stmt = db.prepare('INSERT INTO queue (id, to_user, payload, timestamp) VALUES (?, ?, ?, ?)');
+    const stmt = db.prepare(
+      'INSERT OR REPLACE INTO queue (id, to_user, payload, timestamp) VALUES (?, ?, ?, ?)'
+    );
     stmt.run(message.id, toUserId, JSON.stringify(message), Date.now());
-    console.log(`📥 Stored message for ${toUserId}`);
     res.json({ status: 'queued' });
-  } catch (e) { 
-    console.error(e); 
-    res.sendStatus(500); 
+  } catch (e) {
+    console.error(e);
+    res.sendStatus(500);
   }
 });
 
-// 3. SYNC MESSAGES (Fetch from DB)
+// SYNC
 app.get('/queue/sync/:userId', (req, res) => {
-  const rows = db.prepare('SELECT payload FROM queue WHERE to_user = ?').all(req.params.userId);
-  res.json(rows.map(r => JSON.parse(r.payload)));
+  const rows = db
+    .prepare('SELECT payload FROM queue WHERE to_user = ? ORDER BY timestamp ASC')
+    .all(req.params.userId);
+
+  const out = [];
+  for (const r of rows) {
+    try {
+      out.push(JSON.parse(r.payload));
+    } catch {}
+  }
+  res.json(out);
 });
 
-// 4. ACKNOWLEDGE (Delete from DB)
+// ACK
 app.post('/queue/ack', (req, res) => {
   const { userId, messageIds } = req.body;
+  if (!userId || !Array.isArray(messageIds)) return res.sendStatus(400);
+
   const del = db.prepare('DELETE FROM queue WHERE id = ? AND to_user = ?');
-  const transaction = db.transaction((ids) => {
+  const tx = db.transaction((ids) => {
     for (const id of ids) del.run(id, userId);
   });
-  transaction(messageIds);
-  console.log(`🗑️ Deleted ${messageIds.length} messages`);
+  tx(messageIds);
+
   res.sendStatus(200);
 });
 
-// 5. START SERVER
 app.listen(3000, () => console.log("🚀 Server running on Port 3000"));
