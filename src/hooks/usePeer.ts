@@ -9,20 +9,27 @@ export interface Message {
   text: string;
   sender: 'me' | 'them';
   senderName?: string;
-  senderAvatar?: string; // New field
+  senderAvatar?: string;
   timestamp: number;
   type: 'text' | 'image' | 'video' | 'audio' | 'reaction';
   status: 'sent' | 'pending';
 }
 
-export const usePeer = (myProfile: { id: string; name: string; avatar: string }) => {
+interface Profile {
+  id: string;
+  name: string;
+  avatar: string;
+}
+
+export const usePeer = (myProfile: Profile) => {
   const [isConnected, setIsConnected] = useState(false);
+  const [isConnectionBroken, setIsConnectionBroken] = useState(false); // 🚨 NEW STATE
   const [remoteProfile, setRemoteProfile] = useState<{name: string, avatar: string} | null>(null);
   
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
 
-  // 1. HISTORY (LocalStorage)
+  // 1. HISTORY
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('jchat_history');
     return saved ? JSON.parse(saved) : [];
@@ -36,26 +43,23 @@ export const usePeer = (myProfile: { id: string; name: string; avatar: string })
     localStorage.setItem('jchat_history', JSON.stringify(messages));
   }, [messages]);
 
-  // 2. CONNECTION HANDLER
+  // 2. CONNECTION HANDLING
   const handleConnection = useCallback((connection: DataConnection) => {
     if (connRef.current?.open && connRef.current.peer === connection.peer) return;
 
     console.log(`🔗 Connected: ${connection.peer}`);
     connRef.current = connection;
     setIsConnected(true);
+    setIsConnectionBroken(false); // ✅ Clear broken state on success
     setRemotePeerId(connection.peer);
     localStorage.setItem('last_target_id', connection.peer);
 
     connection.on('open', () => {
       setIsConnected(true);
-      // 🔥 SEND PROFILE HANDSHAKE IMMEDIATELY
-      connection.send({ 
-        type: 'PROFILE_SYNC', 
-        name: myProfile.name, 
-        avatar: myProfile.avatar 
-      });
+      // Handshake Profile
+      connection.send({ type: 'PROFILE_SYNC', name: myProfile.name, avatar: myProfile.avatar });
       
-      // Flush pending messages
+      // Flush Pending
       setMessages(prev => {
         const pending = prev.filter(m => m.sender === 'me' && m.status === 'pending');
         pending.forEach(msg => {
@@ -66,30 +70,16 @@ export const usePeer = (myProfile: { id: string; name: string; avatar: string })
     });
 
     connection.on('data', async (data: any) => {
-      // HANDLE PROFILE SYNC
       if (data.type === 'PROFILE_SYNC') {
         setRemoteProfile({ name: data.name, avatar: data.avatar });
         return;
       }
-
       if (data.sender !== 'me') {
         Haptics.impact({ style: ImpactStyle.Light });
-        
-        // Simple notification logic
-        let body = "New Message";
-        if (data.type === 'image') body = "📷 Photo";
-        if (data.type === 'video') body = "📹 Video";
-        if (data.type === 'audio') body = "🎙️ Voice Note";
-        
         await LocalNotifications.schedule({
-          notifications: [{
-            title: `J-CHAT`, body: body, id: Date.now(),
-            channelId: 'jchat_alerts', schedule: { at: new Date(Date.now() + 100) },
-            smallIcon: 'ic_stat_icon_config_sample',
-          }]
+          notifications: [{ title: `J-CHAT`, body: 'New Message', id: Date.now(), schedule: { at: new Date(Date.now() + 100) } }]
         });
       }
-
       setMessages(prev => {
         if (prev.find(m => m.id === data.id)) return prev;
         return [...prev, { ...data, sender: 'them' }];
@@ -105,7 +95,6 @@ export const usePeer = (myProfile: { id: string; name: string; avatar: string })
     if (!myProfile.id) return;
     if (peerRef.current && !peerRef.current.destroyed) return;
 
-    console.log("⚡ Init Peer:", myProfile.id);
     const newPeer = new Peer(myProfile.id, {
       host: '0.peerjs.com', port: 443, secure: true,
       config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
@@ -113,64 +102,81 @@ export const usePeer = (myProfile: { id: string; name: string; avatar: string })
 
     newPeer.on('open', () => {
       peerRef.current = newPeer;
-      const lastTarget = localStorage.getItem('last_target_id');
-      if (lastTarget && !connRef.current?.open) {
-        const c = newPeer.connect(lastTarget, { reliable: true });
-        handleConnection(c);
-      }
+      // Note: We do NOT auto-connect here anymore. We wait for user action if broken.
     });
 
     newPeer.on('connection', handleConnection);
-    newPeer.on('error', (err) => {
-      if (err.type === 'network' || err.type === 'peer-unavailable') setTimeout(initializePeer, 5000);
-    });
+    newPeer.on('error', (err) => console.log('Peer Error', err));
   }, [myProfile.id, handleConnection]);
 
-  // 4. APP RESUME
+  // 4. BROKEN LINK DETECTOR (The Fix)
   useEffect(() => {
     initializePeer();
+    
     const sub = App.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) initializePeer();
+      if (isActive) {
+        console.log("📱 App Resumed: Checking Link Integrity...");
+        
+        // Check if we *should* be connected but aren't
+        const lastTarget = localStorage.getItem('last_target_id');
+        
+        if (lastTarget) {
+          // If connection object is missing OR not open
+          if (!connRef.current || !connRef.current.open) {
+            console.log("⚠️ Broken Link Detected!");
+            setIsConnectionBroken(true); // 🔥 TRIGGER POPUP
+          }
+        }
+      }
     });
     return () => { sub.then(s => s.remove()); };
   }, [initializePeer]);
 
+  // 5. MANUAL RECONNECT (Called by Popup)
+  const retryConnection = () => {
+    const lastTarget = localStorage.getItem('last_target_id');
+    if (!lastTarget) return;
+
+    console.log("🛠️ Manual Re-Initialize...");
+    if (peerRef.current && !peerRef.current.destroyed) {
+      const c = peerRef.current.connect(lastTarget, { reliable: true });
+      handleConnection(c);
+    } else {
+      // If peer is dead too, restart everything
+      initializePeer();
+      setTimeout(() => {
+        if (peerRef.current) {
+          const c = peerRef.current.connect(lastTarget, { reliable: true });
+          handleConnection(c);
+        }
+      }, 1000);
+    }
+  };
+
   const sendMessage = (content: string, type: any = 'text') => {
     const msg: Message = {
       id: crypto.randomUUID(), text: content, sender: 'me', 
-      senderName: myProfile.name,
-      senderAvatar: myProfile.avatar, // Attach avatar to message
+      senderName: myProfile.name, senderAvatar: myProfile.avatar,
       timestamp: Date.now(), type, status: 'pending'
     };
-
     setMessages(prev => [...prev, msg]);
-
     if (connRef.current?.open) {
       try {
         connRef.current.send({ ...msg, status: 'sent' });
         setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sent' } : m));
-      } catch (e) { console.log("Queueing..."); }
-    } else {
-       // Auto reconnect attempt
-       const lastTarget = localStorage.getItem('last_target_id');
-       if(peerRef.current && lastTarget) {
-          handleConnection(peerRef.current.connect(lastTarget));
-       }
+      } catch (e) {}
     }
   };
 
-  const clearHistory = () => {
-    if(!confirm("Clear History?")) return;
-    setMessages([]);
-    localStorage.removeItem('jchat_history');
-  };
-
+  const clearHistory = () => { if(confirm("Clear?")) { setMessages([]); localStorage.removeItem('jchat_history'); }};
+  
   const unlinkConnection = () => {
     if(!confirm("Unlink?")) return;
     connRef.current?.close();
     localStorage.removeItem('last_target_id');
     setRemotePeerId('');
     setIsConnected(false);
+    setIsConnectionBroken(false);
   };
 
   const connectToPeer = (id: string) => {
@@ -178,5 +184,5 @@ export const usePeer = (myProfile: { id: string; name: string; avatar: string })
     if(c) handleConnection(c);
   };
 
-  return { isConnected, sendMessage, messages, remotePeerId, clearHistory, unlinkConnection, connectToPeer, remoteProfile };
+  return { isConnected, sendMessage, messages, remotePeerId, clearHistory, unlinkConnection, connectToPeer, remoteProfile, isConnectionBroken, retryConnection };
 };
