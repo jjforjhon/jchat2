@@ -5,8 +5,7 @@ import { App } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
 
-// ⚠️ YOUR LAPTOP IP (Ensure this is correct)
-const SERVER_URL = 'http://192.168.1.35:3000'; 
+const SERVER_URL = 'http://192.168.1.35:3000'; // Ensure this matches your laptop IP
 
 export interface Message {
   id: string;
@@ -24,7 +23,7 @@ export const usePeer = (myId: string, targetId: string) => {
   const connRef = useRef<DataConnection | null>(null);
   const pollTimer = useRef<any>(null);
 
-  // 1. ROBUST SYNC (Fetch from Server)
+  // 1. RELAY SYNC (Always active as backup)
   const fetchQueue = useCallback(async () => {
     if (!myId) return;
     try {
@@ -32,7 +31,7 @@ export const usePeer = (myId: string, targetId: string) => {
       const queued = res.data;
       
       if (queued.length > 0) {
-        console.log(`📥 Received ${queued.length} msgs from Relay`);
+        console.log(`📥 [RELAY] Fetched ${queued.length} msgs`);
         Haptics.impact({ style: ImpactStyle.Medium });
         
         setMessages(prev => {
@@ -43,63 +42,74 @@ export const usePeer = (myId: string, targetId: string) => {
           return [...prev, ...newMsgs];
         });
 
-        // Delete from server immediately after fetching
         await axios.post(`${SERVER_URL}/queue/ack`, { 
           userId: myId, 
           messageIds: queued.map((m:any)=>m.id) 
         });
       }
-    } catch (e) { 
-      // Silent fail (server might be unreachable)
-    }
+    } catch (e) { /* Server unreachable, ignore */ }
   }, [myId]);
 
-  // 2. SAFETY POLLING (Aggressive Mode: 1.5s)
+  // Polling for Relay
   useEffect(() => {
-    // Check server every 1.5 seconds (1500ms)
     clearInterval(pollTimer.current);
-    pollTimer.current = setInterval(fetchQueue, 1500); // ✅ UPDATED to 1.5s
+    pollTimer.current = setInterval(fetchQueue, 1500);
     return () => clearInterval(pollTimer.current);
   }, [fetchQueue]);
 
-  // 3. P2P SETUP
+  // 2. STRICT P2P HANDSHAKE
   const initPeer = useCallback(() => {
-    if (!myId) return;
+    if (!myId || myId === targetId) return; // Prevent self-connection
     if (peerRef.current) peerRef.current.destroy();
 
     const peer = new Peer(myId, { host: '0.peerjs.com', port: 443, secure: true });
     peerRef.current = peer;
 
     peer.on('open', () => {
-      console.log("✅ My P2P ID:", myId);
+      console.log(`✅ ID Active: ${myId}`);
       if (targetId) {
+        // Try to connect, but DON'T mark connected yet
         const conn = peer.connect(targetId, { reliable: true });
         handleConn(conn);
       }
       fetchQueue();
     });
 
-    peer.on('connection', handleConn);
-    
-    peer.on('error', (err) => {
-      console.warn("Peer Error:", err);
-      setIsConnected(false);
-      setTimeout(initPeer, 5000); 
+    peer.on('connection', (conn) => {
+        // Incoming connection? Handle it the same way
+        handleConn(conn);
     });
+    
+    peer.on('error', () => { setIsConnected(false); setTimeout(initPeer, 5000); });
   }, [myId, targetId]);
 
   const handleConn = (conn: DataConnection) => {
     connRef.current = conn;
+    
     conn.on('open', () => {
-        console.log("⚡ P2P Connected!");
-        setIsConnected(true);
-        conn.send({ type: 'PING' });
+        console.log("🟡 Socket Open... Waiting for Verification");
+        // DO NOT set setIsConnected(true) here!
+        // Instead, challenge the other peer.
+        conn.send({ type: 'PING' }); 
     });
+
     conn.on('data', (data: any) => {
-        if (data.type === 'PING') return; 
-        
+        // HANDSHAKE LOGIC
+        if (data.type === 'PING') { 
+            // They challenged us -> We reply PONG
+            conn.send({ type: 'PONG' }); 
+            return; 
+        }
+        if (data.type === 'PONG') { 
+            // We challenged them -> They replied -> NOW WE ARE CONNECTED
+            console.log("🟢 VERIFIED! Connection Secured.");
+            setIsConnected(true); 
+            return; 
+        }
+
+        // REAL MESSAGE LOGIC
         if (data.id) {
-            console.log("⚡ Received P2P Message");
+            console.log("⚡ Msg Recv via P2P");
             Haptics.impact({ style: ImpactStyle.Light });
             setMessages(p => {
                if (p.some(m => m.id === data.id)) return p;
@@ -107,11 +117,9 @@ export const usePeer = (myId: string, targetId: string) => {
             });
         }
     });
-    conn.on('close', () => { 
-        console.log("❌ P2P Closed"); 
-        setIsConnected(false); 
-    });
-    conn.on('error', () => setIsConnected(false));
+
+    conn.on('close', () => { setIsConnected(false); });
+    conn.on('error', () => { setIsConnected(false); });
   };
 
   useEffect(() => {
@@ -119,30 +127,22 @@ export const usePeer = (myId: string, targetId: string) => {
     initPeer();
   }, [initPeer]);
 
-  // 4. SMART SEND
+  // 3. SEND LOGIC
   const sendMessage = async (txt: string, type: any = 'text') => {
     const msg = { id: crypto.randomUUID(), text: txt, sender: 'me' as const, timestamp: Date.now(), type, status: 'pending' as const };
     setMessages(p => [...p, msg]);
 
     const payload = { ...msg, text: encryptMessage(txt) }; 
 
-    // ATTEMPT 1: P2P
+    // P2P Attempt (Only if verified)
     if (isConnected && connRef.current?.open) {
-      try { 
-        connRef.current.send(payload); 
-        return; 
-      } catch (e) {
-        console.warn("P2P Failed, switching to Relay...");
-        setIsConnected(false); 
-      }
+      try { connRef.current.send(payload); return; } 
+      catch (e) { setIsConnected(false); }
     }
 
-    // ATTEMPT 2: RELAY SERVER
-    try { 
-      await axios.post(`${SERVER_URL}/queue/send`, { toUserId: targetId, message: payload }); 
-    } catch (e) { 
-      console.error("❌ Message Failed"); 
-    }
+    // Relay Fallback
+    try { await axios.post(`${SERVER_URL}/queue/send`, { toUserId: targetId, message: payload }); } 
+    catch (e) { console.error("Send failed"); }
   };
 
   const clearHistory = () => setMessages([]);
