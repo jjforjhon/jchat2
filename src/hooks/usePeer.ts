@@ -5,8 +5,8 @@ import { App } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
 
-// ⚠️ YOUR SERVER IP (Check ipconfig)
-const SERVER_URL = 'http://192.168.0.105:3000'; 
+// ⚠️ YOUR LAPTOP IP (Ensure this is correct)
+const SERVER_URL = 'http://192.168.1.35:3000'; 
 
 export interface Message {
   id: string;
@@ -22,15 +22,19 @@ export const usePeer = (myId: string, targetId: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
+  const pollTimer = useRef<any>(null);
 
-  // 1. SYNC FROM SERVER
+  // 1. ROBUST SYNC (Fetch from Server)
   const fetchQueue = useCallback(async () => {
     if (!myId) return;
     try {
       const res = await axios.get(`${SERVER_URL}/queue/sync/${myId}`);
       const queued = res.data;
+      
       if (queued.length > 0) {
+        console.log(`📥 Received ${queued.length} msgs from Relay`);
         Haptics.impact({ style: ImpactStyle.Medium });
+        
         setMessages(prev => {
           const ids = new Set(prev.map(m => m.id));
           const newMsgs = queued
@@ -38,12 +42,27 @@ export const usePeer = (myId: string, targetId: string) => {
             .map((m: any) => ({ ...m, text: decryptMessage(m.text), sender: 'them' }));
           return [...prev, ...newMsgs];
         });
-        await axios.post(`${SERVER_URL}/queue/ack`, { userId: myId, messageIds: queued.map((m:any)=>m.id) });
+
+        // Delete from server immediately after fetching
+        await axios.post(`${SERVER_URL}/queue/ack`, { 
+          userId: myId, 
+          messageIds: queued.map((m:any)=>m.id) 
+        });
       }
-    } catch (e) { console.log("Server unreachable"); }
+    } catch (e) { 
+      // Silent fail (server might be unreachable)
+    }
   }, [myId]);
 
-  // 2. P2P SETUP
+  // 2. SAFETY POLLING (Aggressive Mode: 1.5s)
+  useEffect(() => {
+    // Check server every 1.5 seconds (1500ms)
+    clearInterval(pollTimer.current);
+    pollTimer.current = setInterval(fetchQueue, 1500); // ✅ UPDATED to 1.5s
+    return () => clearInterval(pollTimer.current);
+  }, [fetchQueue]);
+
+  // 3. P2P SETUP
   const initPeer = useCallback(() => {
     if (!myId) return;
     if (peerRef.current) peerRef.current.destroy();
@@ -52,6 +71,7 @@ export const usePeer = (myId: string, targetId: string) => {
     peerRef.current = peer;
 
     peer.on('open', () => {
+      console.log("✅ My P2P ID:", myId);
       if (targetId) {
         const conn = peer.connect(targetId, { reliable: true });
         handleConn(conn);
@@ -60,23 +80,37 @@ export const usePeer = (myId: string, targetId: string) => {
     });
 
     peer.on('connection', handleConn);
+    
+    peer.on('error', (err) => {
+      console.warn("Peer Error:", err);
+      setIsConnected(false);
+      setTimeout(initPeer, 5000); 
+    });
   }, [myId, targetId]);
 
   const handleConn = (conn: DataConnection) => {
     connRef.current = conn;
     conn.on('open', () => {
+        console.log("⚡ P2P Connected!");
+        setIsConnected(true);
         conn.send({ type: 'PING' });
-        setInterval(() => conn.send({ type: 'PING' }), 5000); 
     });
     conn.on('data', (data: any) => {
-        if (data.type === 'PING') { conn.send({ type: 'PONG' }); return; }
-        if (data.type === 'PONG') { setIsConnected(true); return; }
+        if (data.type === 'PING') return; 
+        
         if (data.id) {
+            console.log("⚡ Received P2P Message");
             Haptics.impact({ style: ImpactStyle.Light });
-            setMessages(p => [...p, { ...data, text: decryptMessage(data.text), sender: 'them' }]);
+            setMessages(p => {
+               if (p.some(m => m.id === data.id)) return p;
+               return [...p, { ...data, text: decryptMessage(data.text), sender: 'them' }];
+            });
         }
     });
-    conn.on('close', () => setIsConnected(false));
+    conn.on('close', () => { 
+        console.log("❌ P2P Closed"); 
+        setIsConnected(false); 
+    });
     conn.on('error', () => setIsConnected(false));
   };
 
@@ -85,21 +119,32 @@ export const usePeer = (myId: string, targetId: string) => {
     initPeer();
   }, [initPeer]);
 
-  // 3. ACTIONS
+  // 4. SMART SEND
   const sendMessage = async (txt: string, type: any = 'text') => {
     const msg = { id: crypto.randomUUID(), text: txt, sender: 'me' as const, timestamp: Date.now(), type, status: 'pending' as const };
     setMessages(p => [...p, msg]);
 
     const payload = { ...msg, text: encryptMessage(txt) }; 
 
+    // ATTEMPT 1: P2P
     if (isConnected && connRef.current?.open) {
-      try { connRef.current.send(payload); return; } catch (e) {}
+      try { 
+        connRef.current.send(payload); 
+        return; 
+      } catch (e) {
+        console.warn("P2P Failed, switching to Relay...");
+        setIsConnected(false); 
+      }
     }
-    try { await axios.post(`${SERVER_URL}/queue/send`, { toUserId: targetId, message: payload }); } 
-    catch (e) { console.error("Send failed"); }
+
+    // ATTEMPT 2: RELAY SERVER
+    try { 
+      await axios.post(`${SERVER_URL}/queue/send`, { toUserId: targetId, message: payload }); 
+    } catch (e) { 
+      console.error("❌ Message Failed"); 
+    }
   };
 
-  // ✅ ADDED THESE MISSING FUNCTIONS
   const clearHistory = () => setMessages([]);
   const unlinkConnection = () => { connRef.current?.close(); setIsConnected(false); };
 
