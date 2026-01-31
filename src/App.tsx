@@ -4,7 +4,7 @@ import { ChatScreen } from './components/ChatScreen';
 import { usePeer } from './hooks/usePeer';
 
 function App() {
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<{ id: string; name: string; avatar: string } | null>(null);
 
   const { 
     isConnected, 
@@ -13,15 +13,16 @@ function App() {
     messages, 
     remotePeerId, 
     clearHistory, 
-    unlinkConnection 
-  } = usePeer(profile?.id || '');
+    unlinkConnection,
+    remoteProfile 
+  } = usePeer(profile || { id: '', name: '', avatar: '' });
 
   useEffect(() => {
     const saved = localStorage.getItem('chat_profile');
     if (saved) setProfile(JSON.parse(saved));
   }, []);
 
-  const handleLogin = (user: any) => {
+  const handleLogin = (user: { id: string; name: string; avatar: string }) => {
     setProfile(user);
     localStorage.setItem('chat_profile', JSON.stringify(user));
   };
@@ -37,7 +38,6 @@ function App() {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  // Show search if we are not connected AND we are not already trying to auto-dial a peer
   const showSearchScreen = !isConnected && !remotePeerId;
 
   return (
@@ -48,9 +48,11 @@ function App() {
           <div className="w-full max-w-sm border border-[#262626] p-8 rounded-[32px] bg-[#0A0A0A]">
             <h2 className="text-sm font-bold tracking-[0.3em] text-red-600 mb-8 text-center uppercase">System Offline</h2>
             
-            <p className="text-[10px] text-[#666] uppercase tracking-widest mb-2">My Identity</p>
-            <div className="bg-[#121212] p-4 rounded-xl text-[10px] text-[#888] break-all border border-[#333] mb-8 font-mono select-all">
-              {profile.id}
+            <div className="flex flex-col items-center mb-6">
+               <div className="w-16 h-16 rounded-full border border-[#333] mb-2 overflow-hidden">
+                  {profile.avatar && <img src={profile.avatar} className="w-full h-full object-cover"/>}
+               </div>
+               <p className="text-[10px] text-[#666] uppercase tracking-widest">My Identity: {profile.id}</p>
             </div>
             
             <div className="space-y-4">
@@ -59,7 +61,7 @@ function App() {
                 id="target-id-input"
                 type="text" 
                 placeholder="PASTE ID..." 
-                className="w-full bg-black border border-[#333] p-4 rounded-xl text-white text-xs focus:border-red-600 outline-none transition-colors"
+                className="w-full bg-black border border-[#333] p-4 rounded-xl text-white text-xs focus:border-red-600 outline-none transition-colors uppercase"
               />
               <button 
                 onClick={() => {
@@ -81,10 +83,11 @@ function App() {
 
       <ChatScreen 
         messages={messages} 
-        onSendMessage={(text, type) => sendMessage(text, profile.name, type)}
+        onSendMessage={(text, type) => sendMessage(text, type)}
         onClear={clearHistory}
         onUnlink={unlinkConnection}
         targetId={remotePeerId}
+        remoteProfile={remoteProfile}
       />
     </div>
   );
