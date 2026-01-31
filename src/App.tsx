@@ -18,13 +18,7 @@ function App() {
     }
   }, []);
 
-  if (!profile) {
-    return (
-      <div className="bg-black h-screen text-white flex items-center justify-center">
-        LOADING...
-      </div>
-    );
-  }
+  if (!profile) return <div className="bg-black h-screen text-white flex items-center justify-center">LOADING...</div>;
 
   return <ChatSession profile={profile} />;
 }
@@ -38,8 +32,9 @@ const ChatSession = ({ profile }: { profile: { id: string; targetId: string } })
       messages={messages}
       onSendMessage={(text, type) => sendMessage(text, type)}
       onClear={clearHistory}
+      // ✅ RESET BUTTON: Allows you to fix IDs if they are wrong
       onUnlink={() => {
-        if (window.confirm('Disconnect?')) {
+        if (window.confirm('Reset Identity?')) {
           unlinkConnection();
           localStorage.removeItem('jchat_user');
           window.location.reload();
@@ -47,6 +42,7 @@ const ChatSession = ({ profile }: { profile: { id: string; targetId: string } })
       }}
       isConnected={isConnected}
       targetId={profile.targetId}
+      myId={profile.id} // ✅ Pass My ID for debugging
     />
   );
 };

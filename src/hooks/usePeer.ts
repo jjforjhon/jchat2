@@ -5,7 +5,9 @@ import { App } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
 
-const SERVER_URL = 'http://192.168.1.35:3000'; // Change to your server IP
+// ⚠️ IMPORTANT: If testing on Android, use your LAPTOP IP (e.g., 192.168.1.35)
+// ⚠️ If testing on Browser (Same Laptop), use 'http://localhost:3000' to avoid Firewall issues.
+const SERVER_URL = 'http://192.168.1.35:3000'; 
 
 export interface Message {
   id: string;
@@ -16,8 +18,7 @@ export interface Message {
   status: 'pending' | 'delivered';
 }
 
-const genId = () =>
-  Math.random().toString(36).slice(2) + Date.now().toString(36);
+const genId = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 export const usePeer = (myId: string, targetId: string) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -36,6 +37,7 @@ export const usePeer = (myId: string, targetId: string) => {
       const queued = res.data as any[];
 
       if (queued.length > 0) {
+        console.log(`📥 Received ${queued.length} messages from Relay`);
         Haptics.impact({ style: ImpactStyle.Medium });
 
         setMessages(prev => {
@@ -56,8 +58,9 @@ export const usePeer = (myId: string, targetId: string) => {
           messageIds: queued.map(m => m.id)
         });
       }
-    } catch {
-      // Server unreachable, ignore
+    } catch (e) {
+      // ⚠️ LOG THE ERROR TO SEE IF IT IS BLOCKED
+      console.error("Relay Sync Failed (Is Server Running?):", e);
     }
   }, [myId]);
 
@@ -72,7 +75,6 @@ export const usePeer = (myId: string, targetId: string) => {
     if (!myId || !targetId || myId === targetId) return;
 
     setIsConnected(false);
-
     if (peerRef.current) {
       peerRef.current.destroy();
       peerRef.current = null;
@@ -82,6 +84,7 @@ export const usePeer = (myId: string, targetId: string) => {
     peerRef.current = peer;
 
     peer.on('open', () => {
+      console.log(`✅ Peer Open as ${myId}`);
       if (targetId) {
         const conn = peer.connect(targetId, { reliable: true });
         handleConn(conn);
@@ -89,11 +92,10 @@ export const usePeer = (myId: string, targetId: string) => {
       fetchQueue();
     });
 
-    peer.on('connection', (conn) => {
-      handleConn(conn);
-    });
-
-    peer.on('error', () => {
+    peer.on('connection', handleConn);
+    
+    peer.on('error', (err) => {
+      console.warn("Peer Error:", err);
       setIsConnected(false);
       setTimeout(initPeer, 5000);
     });
@@ -102,36 +104,21 @@ export const usePeer = (myId: string, targetId: string) => {
   // ---------------- CONNECTION HANDLER ----------------
   const handleConn = (conn: DataConnection) => {
     connRef.current = conn;
-
-    conn.on('open', () => {
-      conn.send({ type: 'PING' });
-    });
+    conn.on('open', () => { conn.send({ type: 'PING' }); });
 
     conn.on('data', (data: any) => {
-      if (data?.type === 'PING') {
-        conn.send({ type: 'PONG' });
-        return;
+      if (data?.type === 'PING') { conn.send({ type: 'PONG' }); return; }
+      if (data?.type === 'PONG') { 
+          console.log("🟢 P2P Verified!"); 
+          setIsConnected(true); 
+          return; 
       }
-
-      if (data?.type === 'PONG') {
-        if (!isConnected) setIsConnected(true);
-        return;
-      }
-
-      if (data && typeof data.id === 'string' && typeof data.text === 'string') {
+      
+      if (data && typeof data.id === 'string') {
         Haptics.impact({ style: ImpactStyle.Light });
-
         setMessages(prev => {
           if (prev.some(m => m.id === data.id)) return prev;
-          return [
-            ...prev,
-            {
-              ...data,
-              text: decryptMessage(data.text),
-              sender: 'them',
-              status: 'delivered'
-            }
-          ];
+          return [...prev, { ...data, text: decryptMessage(data.text), sender: 'them', status: 'delivered' }];
         });
       }
     });
@@ -140,75 +127,44 @@ export const usePeer = (myId: string, targetId: string) => {
     conn.on('error', () => setIsConnected(false));
   };
 
-  // ---------------- APP LIFECYCLE (FIXED) ----------------
   useEffect(() => {
-    let listenerHandle: any = null;
-
     const setup = async () => {
-      listenerHandle = await App.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) {
-          initPeer();
-          fetchQueue();
-        }
+      await App.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) { initPeer(); fetchQueue(); }
       });
     };
-
     setup();
     initPeer();
-
-    return () => {
-      if (listenerHandle) {
-        listenerHandle.remove();
-      }
-    };
   }, [initPeer, fetchQueue]);
 
   // ---------------- SEND MESSAGE ----------------
   const sendMessage = async (txt: string, type: any = 'text') => {
-    const msg: Message = {
-      id: genId(),
-      text: txt,
-      sender: 'me',
-      timestamp: Date.now(),
-      type,
-      status: 'pending'
-    };
-
+    const msg: Message = { id: genId(), text: txt, sender: 'me', timestamp: Date.now(), type, status: 'pending' };
     setMessages(p => [...p, msg]);
 
     const payload = { ...msg, text: encryptMessage(txt), sender: 'me' };
 
+    // Try P2P
     if (isConnected && connRef.current?.open) {
       try {
         connRef.current.send(payload);
-        setMessages(p =>
-          p.map(m => (m.id === msg.id ? { ...m, status: 'delivered' } : m))
-        );
+        setMessages(p => p.map(m => (m.id === msg.id ? { ...m, status: 'delivered' } : m)));
         return;
-      } catch {
-        setIsConnected(false);
-      }
+      } catch { setIsConnected(false); }
     }
 
+    // Try Relay
     try {
-      await axios.post(`${SERVER_URL}/queue/send`, {
-        toUserId: targetId,
-        message: payload
-      });
-
-      setMessages(p =>
-        p.map(m => (m.id === msg.id ? { ...m, status: 'delivered' } : m))
-      );
-    } catch {
-      console.error('Send failed');
+      await axios.post(`${SERVER_URL}/queue/send`, { toUserId: targetId, message: payload });
+      console.log("☁️ Sent via Relay");
+      setMessages(p => p.map(m => (m.id === msg.id ? { ...m, status: 'delivered' } : m)));
+    } catch (e) {
+      console.error('❌ Send Failed:', e);
     }
   };
 
   const clearHistory = () => setMessages([]);
-  const unlinkConnection = () => {
-    connRef.current?.close();
-    setIsConnected(false);
-  };
+  const unlinkConnection = () => { connRef.current?.close(); setIsConnected(false); };
 
   return { isConnected, sendMessage, messages, clearHistory, unlinkConnection };
 };
