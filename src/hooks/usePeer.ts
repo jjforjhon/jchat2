@@ -1,170 +1,202 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Peer, { DataConnection } from 'peerjs';
-import axios from 'axios';
-import { App } from '@capacitor/app';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
-import { encryptMessage, decryptMessage } from '../utils/crypto';
-
-// ⚠️ IMPORTANT: If testing on Android, use your LAPTOP IP (e.g., 192.168.1.35)
-// ⚠️ If testing on Browser (Same Laptop), use 'http://localhost:3000' to avoid Firewall issues.
-const SERVER_URL = 'http://192.168.1.35:3000'; 
+import { App } from '@capacitor/app';
 
 export interface Message {
   id: string;
   text: string;
   sender: 'me' | 'them';
+  senderName?: string;
   timestamp: number;
   type: 'text' | 'image' | 'video' | 'audio' | 'reaction';
-  status: 'pending' | 'delivered';
+  status: 'sent' | 'pending';
 }
 
-const genId = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-export const usePeer = (myId: string, targetId: string) => {
+export const usePeer = (myId: string) => {
+  // Removed unused 'peer' and 'conn' state variables to fix warnings
+  // We use refs for logic to ensure we always have the latest instance
+  
   const [isConnected, setIsConnected] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-
+  
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
-  const pollTimer = useRef<any>(null);
 
-  // ---------------- RELAY SYNC ----------------
-  const fetchQueue = useCallback(async () => {
-    if (!myId) return;
-
-    try {
-      const res = await axios.get(`${SERVER_URL}/queue/sync/${myId}`);
-      const queued = res.data as any[];
-
-      if (queued.length > 0) {
-        console.log(`📥 Received ${queued.length} messages from Relay`);
-        Haptics.impact({ style: ImpactStyle.Medium });
-
-        setMessages(prev => {
-          const ids = new Set(prev.map(m => m.id));
-          const newMsgs = queued
-            .filter(m => !ids.has(m.id))
-            .map(m => ({
-              ...m,
-              text: decryptMessage(m.text),
-              sender: 'them' as const,
-              status: 'delivered' as const
-            }));
-          return [...prev, ...newMsgs];
-        });
-
-        await axios.post(`${SERVER_URL}/queue/ack`, {
-          userId: myId,
-          messageIds: queued.map(m => m.id)
-        });
-      }
-    } catch (e) {
-      // ⚠️ LOG THE ERROR TO SEE IF IT IS BLOCKED
-      console.error("Relay Sync Failed (Is Server Running?):", e);
-    }
-  }, [myId]);
+  // 1. HISTORY & QUEUE (LocalStorage)
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const saved = localStorage.getItem('jchat_history');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [remotePeerId, setRemotePeerId] = useState<string>(() => {
+    return localStorage.getItem('last_target_id') || '';
+  });
 
   useEffect(() => {
-    clearInterval(pollTimer.current);
-    pollTimer.current = setInterval(fetchQueue, 1500);
-    return () => clearInterval(pollTimer.current);
-  }, [fetchQueue]);
+    localStorage.setItem('jchat_history', JSON.stringify(messages));
+  }, [messages]);
 
-  // ---------------- P2P INIT ----------------
-  const initPeer = useCallback(() => {
-    if (!myId || !targetId || myId === targetId) return;
-
-    setIsConnected(false);
-    if (peerRef.current) {
-      peerRef.current.destroy();
-      peerRef.current = null;
-    }
-
-    const peer = new Peer(myId, { host: '0.peerjs.com', port: 443, secure: true });
-    peerRef.current = peer;
-
-    peer.on('open', () => {
-      console.log(`✅ Peer Open as ${myId}`);
-      if (targetId) {
-        const conn = peer.connect(targetId, { reliable: true });
-        handleConn(conn);
-      }
-      fetchQueue();
-    });
-
-    peer.on('connection', handleConn);
+  // 2. FLUSH QUEUE
+  const flushQueue = useCallback(() => {
+    if (!connRef.current || !connRef.current.open) return;
     
-    peer.on('error', (err) => {
-      console.warn("Peer Error:", err);
-      setIsConnected(false);
-      setTimeout(initPeer, 5000);
+    setMessages(prev => {
+      const pending = prev.filter(m => m.sender === 'me' && m.status === 'pending');
+      if (pending.length === 0) return prev;
+
+      console.log(`🚀 Flushing ${pending.length} pending messages...`);
+      pending.forEach(msg => {
+        try { connRef.current?.send({ ...msg, status: 'sent' }); } catch(e) {}
+      });
+
+      return prev.map(m => m.status === 'pending' ? { ...m, status: 'sent' } : m);
     });
-  }, [myId, targetId, fetchQueue]);
+  }, []);
 
-  // ---------------- CONNECTION HANDLER ----------------
-  const handleConn = (conn: DataConnection) => {
-    connRef.current = conn;
-    conn.on('open', () => { conn.send({ type: 'PING' }); });
+  // 3. CONNECTION HANDLER
+  const handleConnection = useCallback((connection: DataConnection) => {
+    if (connRef.current?.open && connRef.current.peer === connection.peer) return;
 
-    conn.on('data', (data: any) => {
-      if (data?.type === 'PING') { conn.send({ type: 'PONG' }); return; }
-      if (data?.type === 'PONG') { 
-          console.log("🟢 P2P Verified!"); 
-          setIsConnected(true); 
-          return; 
-      }
-      
-      if (data && typeof data.id === 'string') {
+    console.log(`🔗 Link Established: ${connection.peer}`);
+    connRef.current = connection;
+    // We don't need setConn state if we rely on refs and isConnected
+    setIsConnected(true);
+    setRemotePeerId(connection.peer);
+    localStorage.setItem('last_target_id', connection.peer);
+
+    connection.on('open', () => {
+      setIsConnected(true);
+      flushQueue(); 
+    });
+
+    connection.on('data', async (data: any) => {
+      if (data.sender !== 'me') {
         Haptics.impact({ style: ImpactStyle.Light });
-        setMessages(prev => {
-          if (prev.some(m => m.id === data.id)) return prev;
-          return [...prev, { ...data, text: decryptMessage(data.text), sender: 'them', status: 'delivered' }];
+        
+        let body = "New Message";
+        if (data.type === 'image') body = "📷 Photo";
+        if (data.type === 'audio') body = "🎙️ Voice Note";
+        
+        await LocalNotifications.schedule({
+          notifications: [{
+            title: `J-CHAT`, body: body, id: Date.now(),
+            channelId: 'jchat_alerts', schedule: { at: new Date(Date.now() + 100) },
+            smallIcon: 'ic_stat_icon_config_sample',
+          }]
         });
       }
+
+      setMessages(prev => {
+        if (prev.find(m => m.id === data.id)) return prev;
+        return [...prev, { ...data, sender: 'them' }];
+      });
     });
 
-    conn.on('close', () => setIsConnected(false));
-    conn.on('error', () => setIsConnected(false));
-  };
+    connection.on('close', () => {
+      console.log("❌ Link Closed");
+      setIsConnected(false);
+    });
+    
+    connection.on('error', () => setIsConnected(false));
+  }, [flushQueue]);
 
+  // 4. SMART INITIALIZATION
+  const initializePeer = useCallback(() => {
+    if (!myId) return;
+    if (peerRef.current && !peerRef.current.destroyed) return;
+
+    console.log("⚡ Identity Online:", myId);
+    
+    const newPeer = new Peer(myId, {
+      host: '0.peerjs.com', port: 443, secure: true,
+      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+    });
+
+    // Fixed warning: Removed unused 'id' parameter
+    newPeer.on('open', () => {
+      peerRef.current = newPeer;
+      
+      const lastTarget = localStorage.getItem('last_target_id');
+      if (lastTarget && !connRef.current?.open) {
+        console.log("🔄 Auto-Dialing:", lastTarget);
+        const c = newPeer.connect(lastTarget, { reliable: true });
+        handleConnection(c);
+      }
+    });
+
+    newPeer.on('connection', handleConnection);
+    
+    newPeer.on('error', (err) => {
+      console.error("Peer Error:", err);
+      if (err.type === 'network' || err.type === 'peer-unavailable') {
+         setTimeout(initializePeer, 5000);
+      }
+    });
+  }, [myId, handleConnection]);
+
+  // 5. APP RESUME
   useEffect(() => {
-    const setup = async () => {
-      await App.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) { initPeer(); fetchQueue(); }
-      });
+    initializePeer();
+    
+    const sub = App.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) {
+        console.log("📱 App Woke Up");
+        if (!peerRef.current || peerRef.current.destroyed) {
+           initializePeer();
+        } else {
+           const lastTarget = localStorage.getItem('last_target_id');
+           if (lastTarget && (!connRef.current || !connRef.current.open)) {
+              console.log("📞 Line dead. Redialing...");
+              const c = peerRef.current.connect(lastTarget, { reliable: true });
+              handleConnection(c);
+           }
+        }
+      }
+    });
+    return () => { sub.then(s => s.remove()); };
+  }, [initializePeer, handleConnection]);
+
+  const sendMessage = (content: string, userName: string, type: any = 'text') => {
+    const msg: Message = {
+      id: crypto.randomUUID(), text: content, sender: 'me', senderName: userName,
+      timestamp: Date.now(), type, status: 'pending'
     };
-    setup();
-    initPeer();
-  }, [initPeer, fetchQueue]);
 
-  // ---------------- SEND MESSAGE ----------------
-  const sendMessage = async (txt: string, type: any = 'text') => {
-    const msg: Message = { id: genId(), text: txt, sender: 'me', timestamp: Date.now(), type, status: 'pending' };
-    setMessages(p => [...p, msg]);
+    setMessages(prev => [...prev, msg]);
 
-    const payload = { ...msg, text: encryptMessage(txt), sender: 'me' };
-
-    // Try P2P
-    if (isConnected && connRef.current?.open) {
+    if (connRef.current?.open) {
       try {
-        connRef.current.send(payload);
-        setMessages(p => p.map(m => (m.id === msg.id ? { ...m, status: 'delivered' } : m)));
-        return;
-      } catch { setIsConnected(false); }
-    }
-
-    // Try Relay
-    try {
-      await axios.post(`${SERVER_URL}/queue/send`, { toUserId: targetId, message: payload });
-      console.log("☁️ Sent via Relay");
-      setMessages(p => p.map(m => (m.id === msg.id ? { ...m, status: 'delivered' } : m)));
-    } catch (e) {
-      console.error('❌ Send Failed:', e);
+        connRef.current.send({ ...msg, status: 'sent' });
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sent' } : m));
+      } catch (e) { console.log("Send failed, queuing"); }
+    } else {
+       const lastTarget = localStorage.getItem('last_target_id');
+       if(peerRef.current && lastTarget) {
+          const c = peerRef.current.connect(lastTarget);
+          handleConnection(c);
+       }
     }
   };
 
-  const clearHistory = () => setMessages([]);
-  const unlinkConnection = () => { connRef.current?.close(); setIsConnected(false); };
+  const clearHistory = () => {
+    if(!confirm("Clear History?")) return;
+    setMessages([]);
+    localStorage.removeItem('jchat_history');
+  };
 
-  return { isConnected, sendMessage, messages, clearHistory, unlinkConnection };
+  const unlinkConnection = () => {
+    if(!confirm("Unlink?")) return;
+    connRef.current?.close();
+    localStorage.removeItem('last_target_id');
+    setRemotePeerId('');
+    setIsConnected(false);
+  };
+
+  const connectToPeer = (id: string) => {
+    const c = peerRef.current?.connect(id, { reliable: true });
+    if(c) handleConnection(c);
+  };
+
+  return { isConnected, sendMessage, messages, remotePeerId, clearHistory, unlinkConnection, connectToPeer };
 };
