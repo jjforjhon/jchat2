@@ -1,19 +1,10 @@
-export const deriveSessionKey = async (password: string, salt: string = 'jchat-static-salt'): Promise<string> => {
-  const enc = new TextEncoder();
-  
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]
-  );
+import AES from 'crypto-js/aes';
+import encUtf8 from 'crypto-js/enc-utf8';
 
-  const derivedKey = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: enc.encode(salt), iterations: 100000, hash: "SHA-256" },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
+const SECRET_KEY = "CHANGE_THIS_TO_YOUR_OWN_SECRET"; 
 
-  const exported = await crypto.subtle.exportKey("raw", derivedKey);
-  return Array.from(new Uint8Array(exported))
-    .map(b => b.toString(16).padStart(2, '0')).join('');
+export const encryptMessage = (text: string) => AES.encrypt(text, SECRET_KEY).toString();
+export const decryptMessage = (cipher: string) => {
+  try { return AES.decrypt(cipher, SECRET_KEY).toString(encUtf8); } 
+  catch { return "⚠️ [LOCKED]"; }
 };

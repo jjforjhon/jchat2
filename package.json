@@ -10,20 +10,22 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.0.2",
+    "@capacitor/app": "^8.0.0",
     "@capacitor/cli": "^8.0.2",
     "@capacitor/core": "^8.0.2",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/local-notifications": "^8.0.0",
+    "@capacitor/push-notifications": "^8.0.0",
     "@supabase/supabase-js": "^2.93.1",
+    "axios": "^1.13.4",
     "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
     "crypto-js": "^4.2.0",
-    "express": "^5.2.1",
-    "framer-motion": "^10.16.4",
+    "framer-motion": "^10.18.0",
+    "idb": "^8.0.3",
     "jsonwebtoken": "^9.0.3",
     "localforage": "^1.10.0",
     "lucide-react": "^0.292.0",
-    "peerjs": "^1.5.1",
+    "peerjs": "^1.5.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "sqlite3": "^5.1.7",
@@ -44,5 +46,18 @@
     "tailwindcss": "^3.3.5",
     "typescript": "^5.2.2",
     "vite": "^5.0.0"
-  }
+  },
+  "description": "\"# jchat2\" \r #\u0000 \u0000j\u0000c\u0000h\u0000a\u0000t\u00002\u0000\r\u0000 \u0000",
+  "main": "postcss.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jjforjhon/jchat2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jjforjhon/jchat2/issues"
+  },
+  "homepage": "https://github.com/jjforjhon/jchat2#readme"
 }
