@@ -9,7 +9,7 @@ export interface Message {
   text: string;
   sender: 'me' | 'them';
   senderName?: string;
-  senderAvatar?: string; // ✅ Added this to fix ChatScreen error
+  senderAvatar?: string;
   timestamp: number;
   type: 'text' | 'image' | 'video' | 'audio' | 'reaction';
   status: 'sent' | 'pending';
@@ -21,21 +21,26 @@ interface Profile {
   avatar: string;
 }
 
-// ✅ Accepts entire Profile object now
+const HEARTBEAT_INTERVAL = 5000;   // send ping every 5s
+const HEARTBEAT_TIMEOUT  = 15000;  // if no pong in 15s -> broken
+
 export const usePeer = (myProfile: Profile) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnectionBroken, setIsConnectionBroken] = useState(false);
-  const [remoteProfile, setRemoteProfile] = useState<{name: string, avatar: string} | null>(null);
-  
+  const [remoteProfile, setRemoteProfile] = useState<{ name: string; avatar: string } | null>(null);
+
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
 
-  // 1. HISTORY
+  const heartbeatTimerRef = useRef<any>(null);
+  const lastPongRef = useRef<number>(Date.now());
+
+  // HISTORY
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('jchat_history');
     return saved ? JSON.parse(saved) : [];
   });
-  
+
   const [remotePeerId, setRemotePeerId] = useState<string>(() => {
     return localStorage.getItem('last_target_id') || '';
   });
@@ -44,61 +49,135 @@ export const usePeer = (myProfile: Profile) => {
     localStorage.setItem('jchat_history', JSON.stringify(messages));
   }, [messages]);
 
-  // 2. CONNECTION HANDLING
-  const handleConnection = useCallback((connection: DataConnection) => {
-    if (connRef.current?.open && connRef.current.peer === connection.peer) return;
+  const stopHeartbeat = () => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+  };
 
-    console.log(`🔗 Connected: ${connection.peer}`);
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    lastPongRef.current = Date.now();
+
+    heartbeatTimerRef.current = setInterval(() => {
+      const conn = connRef.current;
+      if (!conn || !conn.open) {
+        markBroken();
+        return;
+      }
+
+      // send ping
+      try {
+        conn.send({ type: '__PING__' });
+      } catch {
+        markBroken();
+        return;
+      }
+
+      // check timeout
+      if (Date.now() - lastPongRef.current > HEARTBEAT_TIMEOUT) {
+        markBroken();
+      }
+    }, HEARTBEAT_INTERVAL);
+  };
+
+  const markBroken = () => {
+    stopHeartbeat();
+    setIsConnected(false);
+    setIsConnectionBroken(true);
+  };
+
+  // CONNECTION HANDLING
+  const handleConnection = useCallback((connection: DataConnection) => {
+    // Close any previous connection
+    try {
+      connRef.current?.close();
+    } catch {}
+
     connRef.current = connection;
-    setIsConnected(true);
-    setIsConnectionBroken(false);
-    setRemotePeerId(connection.peer);
-    localStorage.setItem('last_target_id', connection.peer);
 
     connection.on('open', () => {
       setIsConnected(true);
-      // Handshake Profile
+      setIsConnectionBroken(false);
+      setRemotePeerId(connection.peer);
+      localStorage.setItem('last_target_id', connection.peer);
+
+      // handshake profile
       connection.send({ type: 'PROFILE_SYNC', name: myProfile.name, avatar: myProfile.avatar });
-      
-      // Flush Pending
+
+      // start heartbeat
+      startHeartbeat();
+
+      // flush pending
       setMessages(prev => {
         const pending = prev.filter(m => m.sender === 'me' && m.status === 'pending');
         pending.forEach(msg => {
-          try { connection.send({ ...msg, status: 'sent', senderAvatar: myProfile.avatar }); } catch(e) {}
+          try {
+            connection.send({ ...msg, status: 'sent', senderAvatar: myProfile.avatar });
+          } catch {}
         });
-        return prev.map(m => m.status === 'pending' ? { ...m, status: 'sent' } : m);
+        return prev.map(m => (m.status === 'pending' ? { ...m, status: 'sent' } : m));
       });
     });
 
     connection.on('data', async (data: any) => {
-      if (data.type === 'PROFILE_SYNC') {
+      // heartbeat handling
+      if (data?.type === '__PING__') {
+        try {
+          connection.send({ type: '__PONG__' });
+        } catch {}
+        return;
+      }
+      if (data?.type === '__PONG__') {
+        lastPongRef.current = Date.now();
+        return;
+      }
+
+      if (data?.type === 'PROFILE_SYNC') {
         setRemoteProfile({ name: data.name, avatar: data.avatar });
         return;
       }
+
       if (data.sender !== 'me') {
         Haptics.impact({ style: ImpactStyle.Light });
         await LocalNotifications.schedule({
-          notifications: [{ title: `J-CHAT`, body: 'New Message', id: Date.now(), schedule: { at: new Date(Date.now() + 100) } }]
+          notifications: [
+            {
+              title: `J-CHAT`,
+              body: 'New Message',
+              id: Date.now(),
+              schedule: { at: new Date(Date.now() + 100) },
+            },
+          ],
         });
       }
+
       setMessages(prev => {
         if (prev.find(m => m.id === data.id)) return prev;
         return [...prev, { ...data, sender: 'them' }];
       });
     });
 
-    connection.on('close', () => { setIsConnected(false); });
-    connection.on('error', () => setIsConnected(false));
+    connection.on('close', () => {
+      markBroken();
+    });
+
+    connection.on('error', () => {
+      markBroken();
+    });
   }, [myProfile]);
 
-  // 3. INITIALIZATION
+  // INITIALIZATION
   const initializePeer = useCallback(() => {
     if (!myProfile.id) return;
     if (peerRef.current && !peerRef.current.destroyed) return;
 
     const newPeer = new Peer(myProfile.id, {
-      host: '0.peerjs.com', port: 443, secure: true,
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+      host: '0.peerjs.com',
+      port: 443,
+      secure: true,
+      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
     });
 
     newPeer.on('open', () => {
@@ -106,36 +185,49 @@ export const usePeer = (myProfile: Profile) => {
     });
 
     newPeer.on('connection', handleConnection);
-    newPeer.on('error', (err) => console.log('Peer Error', err));
+    newPeer.on('error', err => console.log('Peer Error', err));
   }, [myProfile.id, handleConnection]);
 
-  // 4. BROKEN LINK DETECTOR
+  // APP STATE LISTENER (FIXED PROMISE CLEANUP)
   useEffect(() => {
     initializePeer();
-    const sub = App.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) {
-        console.log("📱 App Resumed");
-        const lastTarget = localStorage.getItem('last_target_id');
-        if (lastTarget) {
-          if (!connRef.current || !connRef.current.open) {
-            console.log("⚠️ Broken Link Detected!");
-            setIsConnectionBroken(true);
+
+    let handle: any;
+
+    (async () => {
+      handle = await App.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) {
+          const lastTarget = localStorage.getItem('last_target_id');
+          if (lastTarget) {
+            // Force heartbeat check
+            if (!connRef.current || !connRef.current.open) {
+              markBroken();
+            }
           }
         }
+      });
+    })();
+
+    return () => {
+      if (handle) {
+        handle.remove();
       }
-    });
-    return () => { sub.then(s => s.remove()); };
+    };
   }, [initializePeer]);
 
-  // 5. MANUAL RECONNECT
+  // MANUAL RECONNECT
   const retryConnection = () => {
     const lastTarget = localStorage.getItem('last_target_id');
     if (!lastTarget) return;
 
-    if (peerRef.current && !peerRef.current.destroyed) {
-      const c = peerRef.current.connect(lastTarget, { reliable: true });
-      handleConnection(c);
-    } else {
+    try {
+      connRef.current?.close();
+    } catch {}
+
+    setIsConnectionBroken(false);
+
+    if (!peerRef.current || peerRef.current.destroyed) {
+      peerRef.current = null;
       initializePeer();
       setTimeout(() => {
         if (peerRef.current) {
@@ -143,29 +235,49 @@ export const usePeer = (myProfile: Profile) => {
           handleConnection(c);
         }
       }, 1000);
+    } else {
+      const c = peerRef.current.connect(lastTarget, { reliable: true });
+      handleConnection(c);
     }
   };
 
   const sendMessage = (content: string, type: any = 'text') => {
     const msg: Message = {
-      id: crypto.randomUUID(), text: content, sender: 'me', 
-      senderName: myProfile.name, senderAvatar: myProfile.avatar,
-      timestamp: Date.now(), type, status: 'pending'
+      id: crypto.randomUUID(),
+      text: content,
+      sender: 'me',
+      senderName: myProfile.name,
+      senderAvatar: myProfile.avatar,
+      timestamp: Date.now(),
+      type,
+      status: 'pending',
     };
+
     setMessages(prev => [...prev, msg]);
+
     if (connRef.current?.open) {
       try {
         connRef.current.send({ ...msg, status: 'sent' });
-        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sent' } : m));
-      } catch (e) {}
+        setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, status: 'sent' } : m)));
+      } catch {
+        markBroken();
+      }
     }
   };
 
-  const clearHistory = () => { if(confirm("Clear?")) { setMessages([]); localStorage.removeItem('jchat_history'); }};
-  
+  const clearHistory = () => {
+    if (confirm('Clear?')) {
+      setMessages([]);
+      localStorage.removeItem('jchat_history');
+    }
+  };
+
   const unlinkConnection = () => {
-    if(!confirm("Unlink?")) return;
-    connRef.current?.close();
+    if (!confirm('Unlink?')) return;
+    try {
+      connRef.current?.close();
+    } catch {}
+    stopHeartbeat();
     localStorage.removeItem('last_target_id');
     setRemotePeerId('');
     setIsConnected(false);
@@ -174,8 +286,19 @@ export const usePeer = (myProfile: Profile) => {
 
   const connectToPeer = (id: string) => {
     const c = peerRef.current?.connect(id, { reliable: true });
-    if(c) handleConnection(c);
+    if (c) handleConnection(c);
   };
 
-  return { isConnected, sendMessage, messages, remotePeerId, clearHistory, unlinkConnection, connectToPeer, remoteProfile, isConnectionBroken, retryConnection };
+  return {
+    isConnected,
+    sendMessage,
+    messages,
+    remotePeerId,
+    clearHistory,
+    unlinkConnection,
+    connectToPeer,
+    remoteProfile,
+    isConnectionBroken,
+    retryConnection,
+  };
 };
