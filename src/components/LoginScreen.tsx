@@ -1,20 +1,17 @@
 import { useState, useRef } from 'react';
+import { api } from '../api/server'; // We need to import the API
 
-// ✅ Matches App.tsx expectation
 interface LoginProps {
-  onLogin: (user: { id: string; name: string; avatar: string }) => void;
+  onLogin: (user: { id: string; name: string; avatar: string; privateKey: string }) => void;
 }
 
 export const LoginScreen = ({ onLogin }: LoginProps) => {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false); // Add loading state
+  const [error, setError] = useState(''); // Add error state
   const [avatar, setAvatar] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAutoId = () => {
-    const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    handleSubmit(null, randomId);
-  };
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -38,17 +35,59 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent | null, autoId?: string) => {
+  const handleSubmit = async (e: React.FormEvent | null) => {
     if (e) e.preventDefault();
-    const finalId = autoId || id.trim();
-    const finalName = name.trim() || 'User-' + finalId;
-    if (!finalId) return;
+    setError('');
     
-    onLogin({ 
-      id: finalId, 
-      name: finalName, 
-      avatar: avatar || '' 
-    });
+    const finalId = id.trim().toUpperCase();
+    const finalName = name.trim() || 'User-' + finalId;
+    
+    if (!finalId) {
+      setError('ID is required');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // 1. Generate Crypto Keys
+      const keys = await window.crypto.subtle.generateKey(
+        {
+          name: "RSA-OAEP",
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["encrypt", "decrypt"]
+      );
+
+      // 2. Export Public Key to send to Server
+      const pubKeyBuffer = await window.crypto.subtle.exportKey("spki", keys.publicKey);
+      const pubKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(pubKeyBuffer)));
+
+      // 3. Export Private Key to save Locally (NEVER SEND THIS)
+      const privKeyBuffer = await window.crypto.subtle.exportKey("pkcs8", keys.privateKey);
+      const privKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(privKeyBuffer)));
+
+      // 4. Register on Render Server
+      console.log('Registering with server...');
+      await api.register(finalId, pubKeyBase64, avatar);
+
+      // 5. Success! Log in locally
+      onLogin({ 
+        id: finalId, 
+        name: finalName, 
+        avatar: avatar || '',
+        privateKey: privKeyBase64 
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Registration failed. Check internet.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -76,29 +115,25 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
             type="text" 
             value={id}
             onChange={(e) => setId(e.target.value)}
-            placeholder="UNIQUE ID (REQUIRED)"
+            placeholder="CHOOSE UNIQUE ID"
             className="w-full bg-black border border-[#333] p-4 rounded-xl text-white text-sm focus:border-white outline-none uppercase placeholder-[#444]"
           />
           <input 
             type="text" 
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="DISPLAY NAME (OPTIONAL)"
+            placeholder="DISPLAY NAME"
             className="w-full bg-black border border-[#333] p-4 rounded-xl text-white text-sm focus:border-white outline-none placeholder-[#444]"
           />
           
+          {error && <p className="text-red-500 text-xs text-center">{error}</p>}
+
           <button 
             onClick={(e) => handleSubmit(e)} 
-            className="w-full bg-white text-black font-bold py-4 rounded-full uppercase tracking-widest hover:bg-[#ccc] active:scale-95 transition-all mt-4"
+            disabled={loading}
+            className="w-full bg-white text-black font-bold py-4 rounded-full uppercase tracking-widest hover:bg-[#ccc] active:scale-95 transition-all mt-4 disabled:opacity-50"
           >
-            Create Permanent Profile
-          </button>
-          
-          <button 
-            onClick={handleAutoId}
-            className="w-full bg-[#1A1A1A] text-white border border-[#333] py-4 rounded-full text-xs uppercase tracking-widest hover:bg-[#222] active:scale-95 transition-all"
-          >
-            Random ID
+            {loading ? 'Registering...' : 'Create Account'}
           </button>
         </div>
       </div>
