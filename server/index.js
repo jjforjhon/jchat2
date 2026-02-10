@@ -4,9 +4,9 @@ const Database = require('better-sqlite3');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Increased limit for avatars
+app.use(express.json({ limit: '50mb' }));
 
-// DATABASE
+// DATABASE SETUP
 const db = new Database('dead_drop.sqlite');
 db.exec(`
   CREATE TABLE IF NOT EXISTS queue (
@@ -17,7 +17,7 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_to_user ON queue(to_user);
   
-  -- NEW: USERS TABLE FOR PUBLIC KEYS
+  -- THIS IS THE MISSING PART WE NEEDED:
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     public_key TEXT,
@@ -26,7 +26,7 @@ db.exec(`
   );
 `);
 
-// 1. REGISTER (New Endpoint)
+// 1. REGISTER USER (The Fix)
 app.post('/register', (req, res) => {
   const { id, publicKey, avatar } = req.body;
   if (!id) return res.sendStatus(400);
@@ -43,7 +43,7 @@ app.post('/register', (req, res) => {
   }
 });
 
-// 2. SEND (Updated)
+// 2. SEND MESSAGE
 app.post('/queue/send', (req, res) => {
   const { toUserId, message } = req.body;
   if (!toUserId || !message || !message.id) return res.sendStatus(400);
@@ -60,7 +60,7 @@ app.post('/queue/send', (req, res) => {
   }
 });
 
-// 3. SYNC
+// 3. SYNC MESSAGES
 app.get('/queue/sync/:userId', (req, res) => {
   const rows = db
     .prepare('SELECT payload FROM queue WHERE to_user = ? ORDER BY timestamp ASC')
@@ -68,14 +68,12 @@ app.get('/queue/sync/:userId', (req, res) => {
 
   const out = [];
   for (const r of rows) {
-    try {
-      out.push(JSON.parse(r.payload));
-    } catch {}
+    try { out.push(JSON.parse(r.payload)); } catch {}
   }
   res.json(out);
 });
 
-// 4. ACK
+// 4. ACKNOWLEDGE (DELETE)
 app.post('/queue/ack', (req, res) => {
   const { userId, messageIds } = req.body;
   if (!userId || !Array.isArray(messageIds)) return res.sendStatus(400);
@@ -89,11 +87,10 @@ app.post('/queue/ack', (req, res) => {
   res.sendStatus(200);
 });
 
-// TTL CLEANUP (Keep DB clean)
+// CLEANUP (Run every hour)
 setInterval(() => {
-  // Delete messages older than 3 days
   const cutoff = Date.now() - (3 * 24 * 60 * 60 * 1000);
   db.prepare('DELETE FROM queue WHERE timestamp < ?').run(cutoff);
-}, 60 * 60 * 1000); // Run every hour
+}, 60 * 60 * 1000);
 
 app.listen(3000, '0.0.0.0', () => console.log("🚀 Server running on Port 3000"));
