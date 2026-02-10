@@ -1,11 +1,14 @@
 const API_URL = "https://jchat-server.onrender.com";
 
 export const api = {
+  // ... (keep register, login, send, sync, react, deleteAccount as they were) ...
+  // ONLY ADD THIS NEW FUNCTION:
+
   register: async (id: string, password: string, avatar: string) => {
     const res = await fetch(`${API_URL}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, password, publicKey: 'mock-key', avatar })
+      body: JSON.stringify({ id, password, avatar })
     });
     if (!res.ok) throw new Error(await res.text());
     return await res.json();
@@ -19,6 +22,15 @@ export const api = {
     });
     if (!res.ok) throw new Error("Login failed");
     return await res.json();
+  },
+
+  updateProfile: async (id: string, password: string, avatar: string, name: string) => {
+    const res = await fetch(`${API_URL}/update-profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, password, avatar, name })
+    });
+    return res.ok;
   },
 
   send: async (msg: any) => {
@@ -38,7 +50,7 @@ export const api = {
   },
 
   react: async (messageId: string, emoji: string) => {
-    return fetch(`${API_URL}/react`, {
+     return fetch(`${API_URL}/react`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageId, emoji })
@@ -46,7 +58,7 @@ export const api = {
   },
 
   deleteAccount: async (id: string, password: string) => {
-    return fetch(`${API_URL}/delete`, {
+     return fetch(`${API_URL}/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, password })
