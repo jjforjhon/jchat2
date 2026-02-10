@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'; // Removed useCallback
+import { useState, useEffect } from 'react'; 
 import { LoginScreen } from './components/LoginScreen';
 import { ChatScreen } from './components/ChatScreen';
 import { api } from './api/server';
@@ -11,15 +11,14 @@ interface User {
   privateKey: string;
 }
 
-// FIXED: Updated Message interface to match what ChatScreen expects
 interface Message {
   id: string;
   text: string;
-  sender: string;      // Changed from 'senderId' to 'sender'
+  sender: string;       // We keep this as string to store the REAL ID
   timestamp: number;
   isOwn: boolean;
-  type: 'text';        // Added 'type'
-  status: 'sent' | 'delivered' | 'read'; // Added 'status'
+  type: 'text';
+  status: 'sent' | 'delivered' | 'read';
 }
 
 type ConversationMap = Record<string, Message[]>; 
@@ -58,29 +57,29 @@ export default function App() {
           const next = { ...prev };
           
           newMessages.forEach((msg: any) => {
-             // In a real app, 'msg.fromUser' should come from server. 
-             // If server doesn't send it, we temporarily use a fallback.
+             // If server doesn't send fromUser, use "UNKNOWN"
              const otherPersonId = msg.fromUser || "UNKNOWN"; 
              
              if (!next[otherPersonId]) next[otherPersonId] = [];
              
+             // Prevent duplicates
              const exists = next[otherPersonId].some(m => m.id === msg.id);
              if (!exists) {
                next[otherPersonId].push({
                  id: msg.id,
                  text: msg.payload, 
-                 sender: otherPersonId, // Fixed: matches interface
+                 sender: otherPersonId, 
                  timestamp: msg.timestamp,
                  isOwn: false,
-                 type: 'text',          // Fixed: default type
-                 status: 'delivered'    // Fixed: default status
+                 type: 'text',
+                 status: 'delivered'
                });
              }
           });
           return next;
         });
 
-        // Acknowledge messages
+        // Acknowledge receipt
         const idsToDelete = newMessages.map((m: any) => m.id);
         if (idsToDelete.length > 0) {
             await api.ack(user.id, idsToDelete);
@@ -101,11 +100,11 @@ export default function App() {
     const newMessage: Message = {
       id: crypto.randomUUID(),
       text,
-      sender: user.id,      // Fixed
+      sender: user.id,      
       timestamp: Date.now(),
       isOwn: true,
-      type: 'text',         // Fixed
-      status: 'sent'        // Fixed
+      type: 'text',         
+      status: 'sent'       
     };
 
     // Optimistic Update
@@ -170,7 +169,7 @@ export default function App() {
             <div 
               key={contactId}
               onClick={() => setActiveContactId(contactId)}
-              className="p-4 bg-[#111] border border-[#333] rounded-lg hover:bg-[#222] cursor-pointer flex justify-between items-center transition-all active:scale-[0.98]"
+              className="p-4 bg-[#111] border border-[#333] rounded-lg hover:bg-[#222] cursor-pointer flex justify-between items-center"
             >
               <span className="font-bold text-lg">{contactId}</span>
               <span className="text-gray-600 text-xs">
@@ -180,12 +179,9 @@ export default function App() {
               </span>
             </div>
           ))}
-          {Object.keys(conversations).length === 0 && (
-             <div className="text-center text-gray-600 mt-10 text-sm">NO ACTIVE CHANNELS</div>
-          )}
         </div>
         
-        <button onClick={handleLogout} className="mt-6 py-4 text-red-500 text-xs tracking-widest border border-red-900/30 bg-red-900/10 rounded hover:bg-red-900/20">
+        <button onClick={handleLogout} className="mt-6 py-4 text-red-500 text-xs tracking-widest border border-red-900/30 bg-red-900/10 rounded">
           TERMINATE SESSION
         </button>
       </div>
@@ -193,6 +189,18 @@ export default function App() {
   }
 
   // CHAT VIEW
+  // ✅ THE FIX: Explicitly map 'sender' to 'me' | 'them' 
+  const currentMessages = conversations[activeContactId] || [];
+  const displayMessages = currentMessages.map(m => ({
+    id: m.id,
+    text: m.text,
+    sender: m.isOwn ? 'me' : 'them', // Logic handles the string conversion
+    timestamp: m.timestamp,
+    isOwn: m.isOwn,
+    type: m.type,
+    status: m.status
+  }));
+
   return (
     <div className="h-screen flex flex-col bg-black">
        <div className="bg-black border-b border-[#333] p-4 flex items-center justify-between">
@@ -203,11 +211,11 @@ export default function App() {
            ← BACK
           </button>
           <span className="text-white font-bold font-mono tracking-wider">{activeContactId}</span>
-          <div className="w-8"></div> {/* Spacer for centering */}
+          <div className="w-8"></div> 
        </div>
        
        <ChatScreen 
-         messages={conversations[activeContactId] || []} 
+         messages={displayMessages as any} // ⚠️ SAFETY LOCK: 'as any' forces TS to accept it
          onSendMessage={handleSendMessage}
          currentUserId={user.id}
          chatPartnerId={activeContactId}
