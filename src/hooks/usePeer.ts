@@ -4,6 +4,9 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { App } from '@capacitor/app';
 
+// ✅ YOUR RENDER SERVER URL
+const API_URL = "https://jchat-server.onrender.com";
+
 export interface Message {
   id: string;
   text: string;
@@ -21,8 +24,8 @@ interface Profile {
   avatar: string;
 }
 
-const HEARTBEAT_INTERVAL = 5000;   // send ping every 5s
-const HEARTBEAT_TIMEOUT  = 15000;  // if no pong in 15s -> broken
+const HEARTBEAT_INTERVAL = 5000;
+const HEARTBEAT_TIMEOUT  = 15000;
 
 export const usePeer = (myProfile: Profile) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -31,7 +34,6 @@ export const usePeer = (myProfile: Profile) => {
 
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
-
   const heartbeatTimerRef = useRef<any>(null);
   const lastPongRef = useRef<number>(Date.now());
 
@@ -48,6 +50,76 @@ export const usePeer = (myProfile: Profile) => {
   useEffect(() => {
     localStorage.setItem('jchat_history', JSON.stringify(messages));
   }, [messages]);
+
+  // --- HYBRID RELAY LOGIC ---
+  
+  // 1. Poll for offline messages from Render Server
+  useEffect(() => {
+    if (!myProfile.id) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/queue/sync/${myProfile.id}`);
+        const data = await res.json();
+        
+        if (data && data.length > 0) {
+          const newMsgs: string[] = [];
+          
+          setMessages(prev => {
+            const updated = [...prev];
+            let hasNew = false;
+            
+            data.forEach((msg: Message) => {
+              if (!updated.find(existing => existing.id === msg.id)) {
+                updated.push({ ...msg, sender: 'them', status: 'sent' });
+                newMsgs.push(msg.id);
+                hasNew = true;
+                
+                // Notify
+                Haptics.impact({ style: ImpactStyle.Medium });
+                LocalNotifications.schedule({
+                  notifications: [{
+                    title: `J-CHAT (Relay)`,
+                    body: msg.type === 'text' ? msg.text : 'New Media Message',
+                    id: Date.now(),
+                    schedule: { at: new Date(Date.now() + 100) },
+                  }],
+                });
+              }
+            });
+            return hasNew ? updated : prev;
+          });
+
+          // ACK received messages to delete them from server
+          if (newMsgs.length > 0) {
+            await fetch(`${API_URL}/queue/ack`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: myProfile.id, messageIds: newMsgs })
+            });
+          }
+        }
+      } catch (e) {
+        // Silent fail on polling error
+      }
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [myProfile.id]);
+
+  // 2. Send via Server (Fallback)
+  const sendViaRelay = async (msg: Message, targetId: string) => {
+    try {
+      await fetch(`${API_URL}/queue/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toUserId: targetId, message: msg })
+      });
+      return true;
+    } catch (e) {
+      console.error("Relay Failed", e);
+      return false;
+    }
+  };
 
   const stopHeartbeat = () => {
     if (heartbeatTimerRef.current) {
@@ -66,16 +138,7 @@ export const usePeer = (myProfile: Profile) => {
         markBroken();
         return;
       }
-
-      // send ping
-      try {
-        conn.send({ type: '__PING__' });
-      } catch {
-        markBroken();
-        return;
-      }
-
-      // check timeout
+      try { conn.send({ type: '__PING__' }); } catch { markBroken(); }
       if (Date.now() - lastPongRef.current > HEARTBEAT_TIMEOUT) {
         markBroken();
       }
@@ -88,13 +151,8 @@ export const usePeer = (myProfile: Profile) => {
     setIsConnectionBroken(true);
   };
 
-  // CONNECTION HANDLING
   const handleConnection = useCallback((connection: DataConnection) => {
-    // Close any previous connection
-    try {
-      connRef.current?.close();
-    } catch {}
-
+    try { connRef.current?.close(); } catch {}
     connRef.current = connection;
 
     connection.on('open', () => {
@@ -103,53 +161,28 @@ export const usePeer = (myProfile: Profile) => {
       setRemotePeerId(connection.peer);
       localStorage.setItem('last_target_id', connection.peer);
 
-      // handshake profile
       connection.send({ type: 'PROFILE_SYNC', name: myProfile.name, avatar: myProfile.avatar });
-
-      // start heartbeat
       startHeartbeat();
 
-      // flush pending
+      // Flush pending messages via P2P
       setMessages(prev => {
         const pending = prev.filter(m => m.sender === 'me' && m.status === 'pending');
         pending.forEach(msg => {
-          try {
-            connection.send({ ...msg, status: 'sent', senderAvatar: myProfile.avatar });
-          } catch {}
+          try { connection.send({ ...msg, status: 'sent', senderAvatar: myProfile.avatar }); } catch {}
         });
         return prev.map(m => (m.status === 'pending' ? { ...m, status: 'sent' } : m));
       });
     });
 
     connection.on('data', async (data: any) => {
-      // heartbeat handling
-      if (data?.type === '__PING__') {
-        try {
-          connection.send({ type: '__PONG__' });
-        } catch {}
-        return;
-      }
-      if (data?.type === '__PONG__') {
-        lastPongRef.current = Date.now();
-        return;
-      }
-
-      if (data?.type === 'PROFILE_SYNC') {
-        setRemoteProfile({ name: data.name, avatar: data.avatar });
-        return;
-      }
+      if (data?.type === '__PING__') { try { connection.send({ type: '__PONG__' }); } catch {} return; }
+      if (data?.type === '__PONG__') { lastPongRef.current = Date.now(); return; }
+      if (data?.type === 'PROFILE_SYNC') { setRemoteProfile({ name: data.name, avatar: data.avatar }); return; }
 
       if (data.sender !== 'me') {
         Haptics.impact({ style: ImpactStyle.Light });
         await LocalNotifications.schedule({
-          notifications: [
-            {
-              title: `J-CHAT`,
-              body: 'New Message',
-              id: Date.now(),
-              schedule: { at: new Date(Date.now() + 100) },
-            },
-          ],
+          notifications: [{ title: `J-CHAT`, body: 'New Message', id: Date.now(), schedule: { at: new Date(Date.now() + 100) } }],
         });
       }
 
@@ -159,16 +192,10 @@ export const usePeer = (myProfile: Profile) => {
       });
     });
 
-    connection.on('close', () => {
-      markBroken();
-    });
-
-    connection.on('error', () => {
-      markBroken();
-    });
+    connection.on('close', markBroken);
+    connection.on('error', markBroken);
   }, [myProfile]);
 
-  // INITIALIZATION
   const initializePeer = useCallback(() => {
     if (!myProfile.id) return;
     if (peerRef.current && !peerRef.current.destroyed) return;
@@ -180,52 +207,30 @@ export const usePeer = (myProfile: Profile) => {
       config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
     });
 
-    newPeer.on('open', () => {
-      peerRef.current = newPeer;
-    });
-
+    newPeer.on('open', () => { peerRef.current = newPeer; });
     newPeer.on('connection', handleConnection);
     newPeer.on('error', err => console.log('Peer Error', err));
   }, [myProfile.id, handleConnection]);
 
-  // APP STATE LISTENER (FIXED PROMISE CLEANUP)
   useEffect(() => {
     initializePeer();
-
     let handle: any;
-
     (async () => {
       handle = await App.addListener('appStateChange', ({ isActive }) => {
         if (isActive) {
           const lastTarget = localStorage.getItem('last_target_id');
-          if (lastTarget) {
-            // Force heartbeat check
-            if (!connRef.current || !connRef.current.open) {
-              markBroken();
-            }
-          }
+          if (lastTarget && (!connRef.current || !connRef.current.open)) markBroken();
         }
       });
     })();
-
-    return () => {
-      if (handle) {
-        handle.remove();
-      }
-    };
+    return () => { if (handle) handle.remove(); };
   }, [initializePeer]);
 
-  // MANUAL RECONNECT
   const retryConnection = () => {
     const lastTarget = localStorage.getItem('last_target_id');
     if (!lastTarget) return;
-
-    try {
-      connRef.current?.close();
-    } catch {}
-
+    try { connRef.current?.close(); } catch {}
     setIsConnectionBroken(false);
-
     if (!peerRef.current || peerRef.current.destroyed) {
       peerRef.current = null;
       initializePeer();
@@ -241,7 +246,7 @@ export const usePeer = (myProfile: Profile) => {
     }
   };
 
-  const sendMessage = (content: string, type: any = 'text') => {
+  const sendMessage = async (content: string, type: any = 'text') => {
     const msg: Message = {
       id: crypto.randomUUID(),
       text: content,
@@ -255,12 +260,23 @@ export const usePeer = (myProfile: Profile) => {
 
     setMessages(prev => [...prev, msg]);
 
+    // Try P2P First
     if (connRef.current?.open) {
       try {
         connRef.current.send({ ...msg, status: 'sent' });
         setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, status: 'sent' } : m)));
+        return;
       } catch {
         markBroken();
+      }
+    }
+
+    // Fallback to Server Relay (Dead Drop)
+    const target = remotePeerId || localStorage.getItem('last_target_id');
+    if (target) {
+      const sent = await sendViaRelay(msg, target);
+      if (sent) {
+        setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, status: 'sent' } : m)));
       }
     }
   };
@@ -274,9 +290,7 @@ export const usePeer = (myProfile: Profile) => {
 
   const unlinkConnection = () => {
     if (!confirm('Unlink?')) return;
-    try {
-      connRef.current?.close();
-    } catch {}
+    try { connRef.current?.close(); } catch {}
     stopHeartbeat();
     localStorage.removeItem('last_target_id');
     setRemotePeerId('');
