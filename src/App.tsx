@@ -14,7 +14,7 @@ interface User {
 interface Message {
   id: string;
   text: string;
-  sender: string;       // We keep this as string to store the REAL ID
+  sender: string;       
   timestamp: number;
   isOwn: boolean;
   type: 'text';
@@ -28,7 +28,7 @@ export default function App() {
   const [conversations, setConversations] = useState<ConversationMap>({});
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
 
-  // 1. LOAD DATA ON STARTUP
+  // 1. LOAD DATA
   useEffect(() => {
     const savedUser = localStorage.getItem('jchat_user');
     const savedChats = localStorage.getItem('jchat_conversations');
@@ -37,14 +37,14 @@ export default function App() {
     if (savedChats) setConversations(JSON.parse(savedChats));
   }, []);
 
-  // 2. SAVE DATA WHEN CHANGED
+  // 2. SAVE DATA
   useEffect(() => {
     if (Object.keys(conversations).length > 0) {
       localStorage.setItem('jchat_conversations', JSON.stringify(conversations));
     }
   }, [conversations]);
 
-  // 3. POLLING FOR NEW MESSAGES
+  // 3. POLLING (SYNC)
   useEffect(() => {
     if (!user) return;
     
@@ -57,12 +57,9 @@ export default function App() {
           const next = { ...prev };
           
           newMessages.forEach((msg: any) => {
-             // If server doesn't send fromUser, use "UNKNOWN"
              const otherPersonId = msg.fromUser || "UNKNOWN"; 
-             
              if (!next[otherPersonId]) next[otherPersonId] = [];
              
-             // Prevent duplicates
              const exists = next[otherPersonId].some(m => m.id === msg.id);
              if (!exists) {
                next[otherPersonId].push({
@@ -79,7 +76,7 @@ export default function App() {
           return next;
         });
 
-        // Acknowledge receipt
+        // ACKNOWLEDGE
         const idsToDelete = newMessages.map((m: any) => m.id);
         if (idsToDelete.length > 0) {
             await api.ack(user.id, idsToDelete);
@@ -93,7 +90,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // 4. SEND MESSAGE FUNCTION
+  // 4. SEND MESSAGE
   const handleSendMessage = async (text: string) => {
     if (!user || !activeContactId) return;
 
@@ -107,7 +104,6 @@ export default function App() {
       status: 'sent'       
     };
 
-    // Optimistic Update
     setConversations(prev => {
       const next = { ...prev };
       if (!next[activeContactId]) next[activeContactId] = [];
@@ -115,7 +111,6 @@ export default function App() {
       return next;
     });
 
-    // Send to Server
     await api.send(activeContactId, {
       id: newMessage.id,
       payload: text, 
@@ -124,7 +119,7 @@ export default function App() {
     });
   };
 
-  // 5. LOGIN HANDLER
+  // 5. LOGIN
   const handleLogin = (userData: User) => {
     setUser(userData);
     localStorage.setItem('jchat_user', JSON.stringify(userData));
@@ -139,12 +134,12 @@ export default function App() {
     localStorage.removeItem('jchat_conversations');
   };
 
-  // RENDER
+  // RENDER LOGIN
   if (!user) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  // CONTACT LIST VIEW
+  // RENDER CONTACT LIST
   if (!activeContactId) {
     return (
       <div className="h-screen bg-black text-white p-6 font-mono flex flex-col">
@@ -188,13 +183,14 @@ export default function App() {
     );
   }
 
-  // CHAT VIEW
-  // ✅ THE FIX: Explicitly map 'sender' to 'me' | 'them' 
+  // RENDER CHAT SCREEN
   const currentMessages = conversations[activeContactId] || [];
+  
+  // Transform messages for display
   const displayMessages = currentMessages.map(m => ({
     id: m.id,
     text: m.text,
-    sender: m.isOwn ? 'me' : 'them', // Logic handles the string conversion
+    sender: m.isOwn ? 'me' : 'them', 
     timestamp: m.timestamp,
     isOwn: m.isOwn,
     type: m.type,
@@ -214,12 +210,4 @@ export default function App() {
           <div className="w-8"></div> 
        </div>
        
-       <ChatScreen 
-         messages={displayMessages as any} // ⚠️ SAFETY LOCK: 'as any' forces TS to accept it
-         onSendMessage={handleSendMessage}
-         currentUserId={user.id}
-         chatPartnerId={activeContactId}
-       />
-    </div>
-  );
-}
+       {
