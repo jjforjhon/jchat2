@@ -3,7 +3,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { ChatScreen } from './components/ChatScreen';
 import { api } from './api/server';
 
-// DEFINITIONS
+// --- DEFINITIONS ---
 interface User {
   id: string;
   name: string;
@@ -134,12 +134,12 @@ export default function App() {
     localStorage.removeItem('jchat_conversations');
   };
 
-  // RENDER LOGIN
+  // --- RENDER LOGIN ---
   if (!user) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  // RENDER CONTACT LIST
+  // --- RENDER CONTACT LIST ---
   if (!activeContactId) {
     return (
       <div className="h-screen bg-black text-white p-6 font-mono flex flex-col">
@@ -183,7 +183,7 @@ export default function App() {
     );
   }
 
-  // RENDER CHAT SCREEN
+  // --- RENDER CHAT SCREEN ---
   const currentMessages = conversations[activeContactId] || [];
 
   const displayMessages = currentMessages.map(m => ({
@@ -200,3 +200,19 @@ export default function App() {
     <div className="h-screen flex flex-col bg-black">
       <div className="bg-black border-b border-[#333] p-4 flex items-center justify-between">
         <button
+          onClick={() => setActiveContactId(null)}
+          className="text-white text-sm hover:text-gray-300 font-mono"
+        >
+          ← BACK
+        </button>
+        <span className="text-white font-bold font-mono tracking-wider">{activeContactId}</span>
+        <div className="w-8"></div>
+      </div>
+
+      <ChatScreen
+        messages={displayMessages as any}
+        onSendMessage={handleSendMessage}
+      />
+    </div>
+  );
+}
