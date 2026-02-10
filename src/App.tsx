@@ -8,7 +8,7 @@ export default function App() {
   const [conversations, setConversations] = useState<Record<string, Message[]>>({});
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
-  const [showProfileEdit, setShowProfileEdit] = useState(false); // ✅ NEW: Edit Profile State
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // LOAD SESSION
@@ -18,7 +18,7 @@ export default function App() {
     if (savedUser) setUser(JSON.parse(savedUser));
     if (savedBlocklist) setBlockedUsers(JSON.parse(savedBlocklist));
     
-    // ✅ NEW: Request Notification Permission
+    // Request Notification Permission
     if ("Notification" in window) {
       Notification.requestPermission();
     }
@@ -27,16 +27,13 @@ export default function App() {
   // SYNC LOOP & NOTIFICATIONS
   useEffect(() => {
     if (!user) return;
-    let lastKnownTimestamp = Date.now(); // Track last msg time
+    let lastKnownTimestamp = Date.now(); 
 
     const interval = setInterval(async () => {
       try {
-        // Only fetch new messages to save bandwidth
         const history = await api.sync(user.id, lastKnownTimestamp - 10000); 
         
-        // Process new messages
         const newConvos = { ...conversations };
-        let hasNewMessage = false;
 
         history.forEach((msg: any) => {
           const partner = msg.fromUser === user.id ? msg.toUser : msg.fromUser;
@@ -57,9 +54,8 @@ export default function App() {
             
             if (msg.timestamp > lastKnownTimestamp) lastKnownTimestamp = msg.timestamp;
             
-            // ✅ NEW: Trigger Notification
+            // Trigger Notification directly (No variable needed)
             if (msg.fromUser !== user.id) {
-               hasNewMessage = true;
                if (document.hidden && Notification.permission === "granted") {
                  new Notification(`New message from ${partner}`);
                }
@@ -122,7 +118,7 @@ export default function App() {
 
   if (!user) return <LoginScreen onLogin={(u) => { setUser(u); localStorage.setItem('jchat_user', JSON.stringify(u)); }} />;
 
-  // ✅ NEW: PROFILE EDIT MODAL
+  // PROFILE EDIT MODAL
   if (showProfileEdit) {
     return (
       <div className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center p-6 text-white font-mono">
@@ -159,7 +155,7 @@ export default function App() {
             <h1 className="text-xl tracking-widest">CHATS</h1>
             <div className="text-xs text-gray-600 mt-1">ID: {user.id}</div>
           </div>
-          {/* ✅ NEW: Profile Avatar Button */}
+          {/* Profile Avatar Button */}
           <div onClick={() => setShowProfileEdit(true)} className="w-10 h-10 rounded-full bg-[#222] border border-[#333] overflow-hidden cursor-pointer">
              {user.avatar ? <img src={user.avatar} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-gray-500">?</div>}
           </div>
@@ -184,7 +180,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* ✅ NEW: LOGOUT BUTTON */}
+        {/* LOGOUT BUTTON */}
         <button onClick={handleLogout} className="mt-4 w-full py-4 text-gray-400 text-xs tracking-widest border border-gray-800 bg-[#111] rounded hover:bg-[#222]">
            LOGOUT
         </button>
