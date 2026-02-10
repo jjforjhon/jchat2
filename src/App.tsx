@@ -11,6 +11,7 @@ export default function App() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // LOAD SESSION
   useEffect(() => {
     const savedUser = localStorage.getItem('jchat_user');
     const savedBlocklist = localStorage.getItem('jchat_blocked');
@@ -19,42 +20,61 @@ export default function App() {
     if ("Notification" in window) Notification.requestPermission();
   }, []);
 
+  // SYNC LOOP & NOTIFICATIONS
   useEffect(() => {
     if (!user) return;
     let lastKnownTimestamp = Date.now(); 
 
     const interval = setInterval(async () => {
       try {
+        // Fetch only new messages
         const history = await api.sync(user.id, lastKnownTimestamp - 10000); 
-        const newConvos = { ...conversations };
+        
+        if (history.length === 0) return;
 
-        history.forEach((msg: any) => {
-          const partner = msg.fromUser === user.id ? msg.toUser : msg.fromUser;
-          if (blockedUsers.includes(partner)) return;
+        // ✅ FIX: Use functional update to access the LATEST state
+        setConversations(prevConvos => {
+          const nextConvos = { ...prevConvos }; // Safe copy of current state
 
-          if (!newConvos[partner]) newConvos[partner] = [];
-          const exists = newConvos[partner].some((m: Message) => m.id === msg.id);
-          if (!exists) {
-            newConvos[partner].push({
-              id: msg.id,
-              text: msg.payload,
-              sender: msg.fromUser === user.id ? 'me' : 'them',
-              timestamp: msg.timestamp,
-              type: msg.type,
-              reactions: msg.reactions
-            });
-            if (msg.timestamp > lastKnownTimestamp) lastKnownTimestamp = msg.timestamp;
-            if (msg.fromUser !== user.id && document.hidden && Notification.permission === "granted") {
-                 new Notification(`New message from ${partner}`);
+          history.forEach((msg: any) => {
+            const partner = msg.fromUser === user.id ? msg.toUser : msg.fromUser;
+            if (blockedUsers.includes(partner)) return;
+
+            if (!nextConvos[partner]) nextConvos[partner] = [];
+            
+            // Prevent duplicates
+            const exists = nextConvos[partner].some((m: Message) => m.id === msg.id);
+            if (!exists) {
+              nextConvos[partner].push({
+                id: msg.id,
+                text: msg.payload,
+                sender: msg.fromUser === user.id ? 'me' : 'them',
+                timestamp: msg.timestamp,
+                type: msg.type,
+                reactions: msg.reactions,
+                status: 'delivered' // Ensure status is set
+              });
+              
+              if (msg.timestamp > lastKnownTimestamp) lastKnownTimestamp = msg.timestamp;
+              
+              // Notification Logic
+              if (msg.fromUser !== user.id) {
+                 if (document.hidden && Notification.permission === "granted") {
+                   new Notification(`New message from ${partner}`);
+                 }
+              }
             }
-          }
+          });
+          return nextConvos;
         });
-        setConversations(newConvos);
+
       } catch (e) { console.error(e); }
     }, 3000);
-    return () => clearInterval(interval);
-  }, [user, blockedUsers]);
 
+    return () => clearInterval(interval);
+  }, [user, blockedUsers]); // 'conversations' is NOT needed here anymore
+
+  // ACTIONS
   const handleSendMessage = async (content: string, type: 'text' | 'image' | 'video') => {
     if (!activeContactId) return;
     const msg = {
@@ -65,13 +85,16 @@ export default function App() {
       type: type,
       timestamp: Date.now()
     };
-    await api.send(msg);
+    
+    // Optimistic Update
     setConversations(prev => {
         const next = {...prev};
         if(!next[activeContactId]) next[activeContactId] = [];
-        next[activeContactId].push({...msg, sender: 'me'} as any);
+        next[activeContactId].push({...msg, sender: 'me', status: 'sent'} as any);
         return next;
     });
+
+    await api.send(msg);
   };
 
   const handleProfileUpdate = async (avatar: string) => {
@@ -101,10 +124,11 @@ export default function App() {
 
   if (!user) return <LoginScreen onLogin={(u) => { setUser(u); localStorage.setItem('jchat_user', JSON.stringify(u)); }} />;
 
+  // PROFILE EDIT MODAL (Nothing Style)
   if (showProfileEdit) {
     return (
       <div className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center p-6 text-white font-mono animate-fade-in">
-        <h2 className="text-3xl mb-12 tracking-[0.2em] font-light border-b border-white pb-2">IDENTITY</h2>
+        <h2 className="text-3xl mb-12 font-dot tracking-widest border-b border-white pb-2">IDENTITY</h2>
         
         <div className="relative w-40 h-40 rounded-full border border-dashed border-gray-500 flex items-center justify-center mb-8 overflow-hidden group">
           {user.avatar ? (
@@ -134,7 +158,7 @@ export default function App() {
         {/* HEADER */}
         <div className="flex justify-between items-center border-b border-[#333] pb-6 mb-6 pt-safe-top">
           <div>
-            <h1 className="text-2xl tracking-[0.2em] font-light">CHATS</h1>
+            <h1 className="text-2xl font-dot tracking-widest font-light">CHATS</h1>
             <div className="text-[10px] text-gray-600 mt-2 tracking-wider">LOGGED IN AS: <span className="text-white">{user.id}</span></div>
           </div>
           <div onClick={() => setShowProfileEdit(true)} className="w-12 h-12 rounded-full bg-[#111] border border-[#333] overflow-hidden cursor-pointer hover:border-white transition-colors">
@@ -184,8 +208,8 @@ export default function App() {
     <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-black">
       <div className="p-4 border-b border-[#333] flex justify-between items-center pt-safe-top bg-black z-10">
         <button onClick={() => setActiveContactId(null)} className="text-xs tracking-widest px-4 py-2 border border-[#333] rounded-full hover:bg-white hover:text-black transition-colors">← BACK</button>
-        <span className="font-bold tracking-[0.2em] text-sm">{activeContactId}</span>
-        <div className="w-12"></div> {/* Spacer */}
+        <span className="font-bold font-dot tracking-widest text-sm">{activeContactId}</span>
+        <div className="w-12"></div>
       </div>
       <div className="flex-1 overflow-hidden relative">
         <ChatScreen 
