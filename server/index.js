@@ -1,42 +1,76 @@
 const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
+const crypto = require('crypto'); // For password hashing
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '50mb' })); // Increased limit for Images/Videos
 
-// --- DATABASE SETUP ---
-const db = new Database('dead_drop.sqlite');
+// DATABASE
+const db = new Database('jchat_persistent.sqlite');
 db.exec(`
-  CREATE TABLE IF NOT EXISTS queue (
-    id TEXT PRIMARY KEY,
-    to_user TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    timestamp INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_to_user ON queue(to_user);
-  
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    password_hash TEXT,
     public_key TEXT,
     avatar TEXT,
-    last_seen INTEGER
+    created_at INTEGER
   );
+  
+  CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    from_user TEXT,
+    to_user TEXT,
+    payload TEXT,
+    type TEXT,
+    timestamp INTEGER,
+    reactions TEXT DEFAULT '[]' -- Store reactions as JSON string
+  );
+  CREATE INDEX IF NOT EXISTS idx_messages_users ON messages(from_user, to_user);
 `);
 
-// --- API ROUTES ---
-
-// 1. REGISTER USER
+// 1. REGISTER (Create Account)
 app.post('/register', (req, res) => {
-  const { id, publicKey, avatar } = req.body;
-  if (!id) return res.sendStatus(400);
+  const { id, password, publicKey, avatar } = req.body;
+  if (!id || !password) return res.sendStatus(400);
+
+  // Simple hash for security (In production, use bcrypt)
+  const hash = crypto.createHash('sha256').update(password).digest('hex');
 
   try {
-    const stmt = db.prepare(
-      'INSERT OR REPLACE INTO users (id, public_key, avatar, last_seen) VALUES (?, ?, ?, ?)'
-    );
-    stmt.run(id, publicKey, avatar || '', Date.now());
+    const stmt = db.prepare('INSERT INTO users (id, password_hash, public_key, avatar, created_at) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(id, hash, publicKey, avatar || '', Date.now());
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+      res.status(409).json({ error: "User ID already exists" });
+    } else {
+      res.sendStatus(500);
+    }
+  }
+});
+
+// 2. LOGIN (Restore Account)
+app.post('/login', (req, res) => {
+  const { id, password } = req.body;
+  const hash = crypto.createHash('sha256').update(password).digest('hex');
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ? AND password_hash = ?').get(id, hash);
+  
+  if (user) {
+    res.json({ success: true, user: { id: user.id, name: user.id, avatar: user.avatar } });
+  } else {
+    res.status(401).json({ error: "Invalid ID or Password" });
+  }
+});
+
+// 3. SEND MESSAGE (Persist history)
+app.post('/send', (req, res) => {
+  const { id, fromUser, toUser, payload, type } = req.body;
+  try {
+    db.prepare('INSERT INTO messages (id, from_user, to_user, payload, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, fromUser, toUser, payload, type || 'text', Date.now());
     res.json({ success: true });
   } catch (e) {
     console.error(e);
@@ -44,76 +78,56 @@ app.post('/register', (req, res) => {
   }
 });
 
-// 2. SEND MESSAGE
-app.post('/queue/send', (req, res) => {
-  const { toUserId, message } = req.body;
-  if (!toUserId || !message || !message.id) return res.sendStatus(400);
+// 4. SYNC (Get History)
+app.get('/sync/:userId', (req, res) => {
+  const { userId } = req.params;
+  const { since } = req.query; // Optional: fetch only new messages
 
-  try {
-    const stmt = db.prepare(
-      'INSERT OR REPLACE INTO queue (id, to_user, payload, timestamp) VALUES (?, ?, ?, ?)'
-    );
-    stmt.run(message.id, toUserId, JSON.stringify(message), Date.now());
-    res.json({ status: 'queued' });
-  } catch (e) {
-    console.error(e);
-    res.sendStatus(500);
-  }
+  let query = 'SELECT * FROM messages WHERE to_user = ? OR from_user = ? ORDER BY timestamp ASC';
+  if (since) query = 'SELECT * FROM messages WHERE (to_user = ? OR from_user = ?) AND timestamp > ? ORDER BY timestamp ASC';
+
+  const rows = since 
+    ? db.prepare(query).all(userId, userId, since)
+    : db.prepare(query).all(userId, userId);
+
+  const messages = rows.map(r => ({
+    id: r.id,
+    fromUser: r.from_user,
+    toUser: r.to_user,
+    payload: r.payload,
+    type: r.type,
+    timestamp: r.timestamp,
+    reactions: JSON.parse(r.reactions || '[]')
+  }));
+  
+  res.json(messages);
 });
 
-// 3. SYNC MESSAGES
-app.get('/queue/sync/:userId', (req, res) => {
-  const rows = db
-    .prepare('SELECT payload FROM queue WHERE to_user = ? ORDER BY timestamp ASC')
-    .all(req.params.userId);
+// 5. ADD REACTION
+app.post('/react', (req, res) => {
+  const { messageId, emoji } = req.body;
+  const msg = db.prepare('SELECT reactions FROM messages WHERE id = ?').get(messageId);
+  if (!msg) return res.sendStatus(404);
 
-  const out = [];
-  for (const r of rows) {
-    try { out.push(JSON.parse(r.payload)); } catch {}
-  }
-  res.json(out);
+  let reactions = JSON.parse(msg.reactions || '[]');
+  reactions.push(emoji);
+  
+  db.prepare('UPDATE messages SET reactions = ? WHERE id = ?').run(JSON.stringify(reactions), messageId);
+  res.json({ success: true });
 });
 
-// 4. ACKNOWLEDGE (DELETE MESSAGES)
-app.post('/queue/ack', (req, res) => {
-  const { userId, messageIds } = req.body;
-  if (!userId || !Array.isArray(messageIds)) return res.sendStatus(400);
-
-  const del = db.prepare('DELETE FROM queue WHERE id = ? AND to_user = ?');
-  const tx = db.transaction((ids) => {
-    for (const id of ids) del.run(id, userId);
-  });
-  tx(messageIds);
-
-  res.sendStatus(200);
-});
-
-// 5. DELETE ACCOUNT (✅ NEW)
+// 6. DELETE USER
 app.post('/delete', (req, res) => {
-  const { id } = req.body;
-  if (!id) return res.sendStatus(400);
-
-  try {
-    // Delete the User Profile
-    const info = db.prepare('DELETE FROM users WHERE id = ?').run(id);
-    
-    // Delete all messages waiting for them
-    db.prepare('DELETE FROM queue WHERE to_user = ?').run(id);
-    
-    console.log(`Deleted user: ${id}`);
-    res.json({ success: true, deleted: info.changes > 0 });
-  } catch (e) {
-    console.error(e);
-    res.sendStatus(500);
+  const { id, password } = req.body;
+  const hash = crypto.createHash('sha256').update(password).digest('hex');
+  
+  const info = db.prepare('DELETE FROM users WHERE id = ? AND password_hash = ?').run(id, hash);
+  if(info.changes > 0) {
+      db.prepare('DELETE FROM messages WHERE from_user = ? OR to_user = ?').run(id, id);
+      res.json({ success: true });
+  } else {
+      res.status(401).json({ error: "Invalid credentials" });
   }
 });
 
-// --- CLEANUP TASK ---
-// Run every hour to delete messages older than 3 days
-setInterval(() => {
-  const cutoff = Date.now() - (3 * 24 * 60 * 60 * 1000);
-  db.prepare('DELETE FROM queue WHERE timestamp < ?').run(cutoff);
-}, 60 * 60 * 1000);
-
-// --- START SERVER ---
-app.listen(3000, '0.0.0.0', () => console.log("🚀 Server running on Port 3000"));
+app.listen(3000, '0.0.0.0', () => console.log("🚀 Persistent Server running on 3000"));
