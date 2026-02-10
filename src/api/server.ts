@@ -1,94 +1,55 @@
-// src/api/server.ts
-
-// ✅ Your Render Server URL
-const API_URL = "https://jchat-server.onrender.com"; 
+const API_URL = "https://jchat-server.onrender.com";
 
 export const api = {
-  /**
-   * 1. Register User
-   * Sends the user's Public Key and Avatar to the server.
-   */
-  register: async (id: string, publicKey: string, avatar: string) => {
-    try {
-      const res = await fetch(`${API_URL}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, publicKey, avatar })
-      });
-      
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Server Error: ${text}`);
-      }
-      return await res.json();
-    } catch (err) {
-      console.error("API Register Error:", err);
-      throw err; 
-    }
+  register: async (id: string, password: string, avatar: string) => {
+    const res = await fetch(`${API_URL}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, password, publicKey: 'mock-key', avatar })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return await res.json();
   },
 
-  /**
-   * 2. Send Message (Relay)
-   * Uploads a message blob to the server for a specific user.
-   */
-  send: async (toUserId: string, message: any) => {
-    try {
-      const res = await fetch(`${API_URL}/queue/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toUserId, message })
-      });
-      return res.ok;
-    } catch (err) {
-      console.error("API Send Error:", err);
-      return false;
-    }
+  login: async (id: string, password: string) => {
+    const res = await fetch(`${API_URL}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, password })
+    });
+    if (!res.ok) throw new Error("Login failed");
+    return await res.json();
   },
 
-  /**
-   * 3. Sync Messages
-   * Downloads all pending messages waiting for this user.
-   */
-  sync: async (myUserId: string) => {
-    try {
-      const res = await fetch(`${API_URL}/queue/sync/${myUserId}`);
-      if (!res.ok) return [];
-      return await res.json();
-    } catch (err) {
-      // It's okay to fail silently here (user might be offline)
-      return [];
-    }
+  send: async (msg: any) => {
+    return fetch(`${API_URL}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(msg)
+    });
   },
 
-  /**
-   * 4. Acknowledge Receipt
-   * Tells the server "I got these messages, delete them now."
-   */
-  ack: async (userId: string, messageIds: string[]) => {
-    try {
-      await fetch(`${API_URL}/queue/ack`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, messageIds })
-      });
-    } catch (err) {
-      console.error("API Ack Error:", err);
-    }
+  sync: async (userId: string, lastTimestamp?: number) => {
+    const url = lastTimestamp 
+      ? `${API_URL}/sync/${userId}?since=${lastTimestamp}` 
+      : `${API_URL}/sync/${userId}`;
+    const res = await fetch(url);
+    return res.ok ? await res.json() : [];
   },
 
-  /**
-   * 5. Delete Account (NEW)
-   * Permanently removes user profile and all pending messages from server.
-   */
-  deleteAccount: async (id: string) => {
-    try {
-      await fetch(`${API_URL}/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-    } catch (err) {
-      console.error("API Delete Error:", err);
-    }
+  react: async (messageId: string, emoji: string) => {
+    return fetch(`${API_URL}/react`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, emoji })
+    });
+  },
+
+  deleteAccount: async (id: string, password: string) => {
+    return fetch(`${API_URL}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, password })
+    });
   }
 };
