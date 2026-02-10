@@ -19,37 +19,49 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
 
     try {
       if (mode === 'REGISTER') {
-        await api.register(id, password, '');
-        // Auto login after register
+        // Register & Auto Login
+        await api.register(id, password, ''); 
         onLogin({ id, password }); 
       } else {
         const res = await api.login(id, password);
-        onLogin({ ...res.user, password }); // Save password in local state for reconnects
+        onLogin({ ...res.user, password }); 
       }
     } catch (err: any) {
-      setError(mode === 'LOGIN' ? "INVALID ID OR PASSWORD" : "ID ALREADY EXISTS");
+      setError(mode === 'LOGIN' ? "ACCESS DENIED" : "ID UNAVAILABLE");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="h-screen bg-black text-white font-mono flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md space-y-8">
-        {/* LOGO */}
-        <div className="text-center space-y-2">
-          <div className="text-5xl font-bold tracking-tighter">J-CHAT</div>
-          <div className="text-xs tracking-[0.3em] text-gray-500">ENCRYPTED // PERSISTENT</div>
+    <div className="h-screen bg-black text-white font-mono flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      
+      {/* Background Decoration */}
+      <div className="absolute top-0 left-0 w-full h-1 border-b border-dashed border-[#333]"></div>
+      <div className="absolute bottom-0 right-0 w-full h-1 border-t border-dashed border-[#333]"></div>
+
+      <div className="w-full max-w-md space-y-10 animate-fade-in z-10">
+        
+        {/* LOGO AREA */}
+        <div className="text-center">
+          <h1 className="text-6xl mb-2 font-dot tracking-wider text-white">J-CHAT</h1>
+          <div className="flex justify-center items-center gap-3">
+            <span className="h-px w-8 bg-[#333]"></span>
+            <span className="text-[10px] tracking-[0.4em] text-gray-500 uppercase">System v2.0</span>
+            <span className="h-px w-8 bg-[#333]"></span>
+          </div>
         </div>
 
-        {/* TABS */}
-        <div className="flex border border-[#333] rounded p-1">
+        {/* TABS (Segmented Control) */}
+        <div className="flex bg-[#111] p-1 rounded-full border border-[#222]">
           {['REGISTER', 'LOGIN'].map((m) => (
             <button
               key={m}
-              onClick={() => setMode(m as any)}
-              className={`flex-1 py-3 text-xs tracking-widest transition-all ${
-                mode === m ? 'bg-white text-black' : 'text-gray-500 hover:text-gray-300'
+              onClick={() => { setMode(m as any); setError(''); }}
+              className={`flex-1 py-3 text-[10px] tracking-[0.2em] rounded-full transition-all duration-300 ${
+                mode === m 
+                  ? 'bg-white text-black font-bold shadow-lg' 
+                  : 'text-gray-500 hover:text-white'
               }`}
             >
               {m}
@@ -57,39 +69,51 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
           ))}
         </div>
 
-        {/* FORM */}
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-[10px] text-gray-500 ml-1">USER ID</label>
+        {/* FORM INPUTS */}
+        <div className="space-y-6">
+          <div className="group">
+            <label className="text-[10px] text-gray-500 ml-4 mb-2 block tracking-widest group-focus-within:text-white transition-colors">IDENTITY</label>
             <input
               value={id}
               onChange={(e) => setId(e.target.value.toUpperCase())}
-              className="w-full bg-[#111] border border-[#333] p-4 text-white outline-none focus:border-white transition-colors rounded-lg"
-              placeholder="ENTER UNIQUE ID"
+              className="w-full bg-black border border-[#333] p-5 rounded-2xl text-white outline-none focus:border-white focus:bg-[#111] transition-all text-sm tracking-widest placeholder-gray-800"
+              placeholder="USER ID"
             />
           </div>
           
-          <div className="space-y-1">
-            <label className="text-[10px] text-gray-500 ml-1">PASSWORD</label>
+          <div className="group">
+            <label className="text-[10px] text-gray-500 ml-4 mb-2 block tracking-widest group-focus-within:text-white transition-colors">KEYPHRASE</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-[#111] border border-[#333] p-4 text-white outline-none focus:border-white transition-colors rounded-lg"
-              placeholder="SECURE PASSWORD"
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              className="w-full bg-black border border-[#333] p-5 rounded-2xl text-white outline-none focus:border-white focus:bg-[#111] transition-all text-sm tracking-widest placeholder-gray-800"
+              placeholder="••••••••"
             />
           </div>
         </div>
 
-        {error && <div className="text-red-500 text-xs text-center border border-red-900/50 p-2 bg-red-900/10">{error}</div>}
+        {/* ERROR MESSAGE */}
+        {error && (
+          <div className="flex items-center justify-center gap-2 text-red-500 text-xs tracking-widest border border-red-900/30 p-3 bg-red-900/10 rounded-lg">
+            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+            {error}
+          </div>
+        )}
 
+        {/* SUBMIT BUTTON */}
         <button
           onClick={handleSubmit}
           disabled={loading || !id || !password}
-          className="w-full bg-white text-black font-bold py-4 rounded-lg tracking-widest hover:bg-gray-200 disabled:opacity-50 transition-all"
+          className="w-full bg-white text-black font-bold py-5 rounded-full tracking-[0.2em] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
         >
-          {loading ? 'PROCESSING...' : mode === 'REGISTER' ? 'CREATE IDENTITY' : 'RESTORE SESSION'}
+          {loading ? 'INITIALIZING...' : mode === 'REGISTER' ? 'CREATE IDENTITY' : 'ESTABLISH LINK'}
         </button>
+
+        <div className="text-center">
+            <p className="text-[9px] text-gray-700 tracking-widest">ENCRYPTED // PERSISTENT // SECURE</p>
+        </div>
       </div>
     </div>
   );
