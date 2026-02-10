@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 
+// ✅ FIX 1: Add 'status' to the Message interface
 export interface Message {
   id: string;
   text: string;
@@ -7,6 +8,7 @@ export interface Message {
   timestamp: number;
   type: 'text' | 'image' | 'video';
   reactions?: string[];
+  status?: 'sent' | 'delivered' | 'read'; // Added this line
 }
 
 interface ChatProps {
@@ -34,12 +36,11 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
 
   useEffect(() => { scrollToBottom(); }, [messages]);
 
-  // ✅ FIX: Handler to Clear Input after sending
   const handleSendText = () => {
     if (!inputText.trim()) return;
     onSendMessage(inputText, 'text');
-    setInputText(''); // <--- CLEARS THE BOX
-    setTimeout(scrollToBottom, 100); // Ensure scroll happens
+    setInputText(''); 
+    setTimeout(scrollToBottom, 100); 
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,8 +74,10 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
         <button onClick={() => setShowMenu(!showMenu)} className="text-2xl px-2 text-gray-400 hover:text-white transition-colors">⋮</button>
         {showMenu && (
           <div className="absolute right-0 mt-2 w-48 bg-black border border-white shadow-xl z-30">
-             {/* "Nothing" Style: Sharp corners, white border */}
-            <button onClick={onBlock} className="w-full text-left p-4 text-xs tracking-widest hover:bg-white hover:text-black border-b border-[#333] transition-colors">BLOCK USER</button>
+             {/* ✅ FIX 2: Use 'partnerId' here to make the button text dynamic */}
+            <button onClick={onBlock} className="w-full text-left p-4 text-xs tracking-widest hover:bg-white hover:text-black border-b border-[#333] transition-colors uppercase">
+              BLOCK {partnerId}
+            </button>
             <button onClick={onDeleteChat} className="w-full text-left p-4 text-xs tracking-widest text-red-500 hover:bg-red-900/20 transition-colors">DELETE CHAT</button>
           </div>
         )}
@@ -95,7 +98,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
             >
               {msg.type === 'text' && msg.text}
               
-              {/* Media with Load Handler for Scroll Fix */}
               {msg.type === 'image' && (
                 <img 
                   src={msg.text} 
@@ -131,6 +133,7 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
                )}
                <span className="text-[9px] text-gray-500 tracking-wider">
                  {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                 {/* ✅ FIX 3: Now 'status' exists on Message type, so this works */}
                  {msg.sender === 'me' && msg.status && ` • ${msg.status.toUpperCase()}`}
                </span>
             </div>
@@ -154,7 +157,7 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-          placeholder="TYPE A MESSAGE..."
+          placeholder={`MESSAGE ${partnerId}...`} // Added partnerId here too for clarity
           className="flex-1 bg-[#111] border border-[#333] rounded-full px-5 py-3 text-white outline-none focus:border-white focus:bg-black transition-colors placeholder-gray-600 text-sm tracking-wider"
         />
         
