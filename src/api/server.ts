@@ -1,12 +1,12 @@
 // src/api/server.ts
 
-// ✅ I have already put your correct link here:
+// ✅ Your Render Server URL
 const API_URL = "https://jchat-server.onrender.com"; 
 
 export const api = {
   /**
    * 1. Register User
-   * Sends the user's Public Key and Avatar to the server so others can find them.
+   * Sends the user's Public Key and Avatar to the server.
    */
   register: async (id: string, publicKey: string, avatar: string) => {
     try {
@@ -29,7 +29,7 @@ export const api = {
 
   /**
    * 2. Send Message (Relay)
-   * Uploads an encrypted message blob to the server for a specific user.
+   * Uploads a message blob to the server for a specific user.
    */
   send: async (toUserId: string, message: any) => {
     try {
@@ -73,6 +73,22 @@ export const api = {
       });
     } catch (err) {
       console.error("API Ack Error:", err);
+    }
+  },
+
+  /**
+   * 5. Delete Account (NEW)
+   * Permanently removes user profile and all pending messages from server.
+   */
+  deleteAccount: async (id: string) => {
+    try {
+      await fetch(`${API_URL}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+    } catch (err) {
+      console.error("API Delete Error:", err);
     }
   }
 };
