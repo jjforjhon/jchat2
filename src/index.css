@@ -14,10 +14,11 @@ body {
   color: var(--text-color);
   font-family: 'Roboto Mono', monospace; /* Default Tech Font */
   -webkit-font-smoothing: antialiased;
+  overflow: hidden; /* Prevent body scroll */
 }
 
 /* The Signature "Nothing" Header Font */
-h1, h2, .font-dot {
+.font-dot {
   font-family: 'DotGothic16', sans-serif;
   letter-spacing: 0.05em;
 }
