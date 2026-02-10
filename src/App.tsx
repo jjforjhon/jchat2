@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react'; // Removed useCallback
 import { LoginScreen } from './components/LoginScreen';
-import { ChatScreen } from './components/ChatScreen'; // Assuming you have this
+import { ChatScreen } from './components/ChatScreen';
 import { api } from './api/server';
 
 // DEFINITIONS
@@ -11,15 +11,17 @@ interface User {
   privateKey: string;
 }
 
+// FIXED: Updated Message interface to match what ChatScreen expects
 interface Message {
   id: string;
   text: string;
-  senderId: string;
+  sender: string;      // Changed from 'senderId' to 'sender'
   timestamp: number;
   isOwn: boolean;
+  type: 'text';        // Added 'type'
+  status: 'sent' | 'delivered' | 'read'; // Added 'status'
 }
 
-// THE FIX: We track a Map of conversations, not just a list of messages
 type ConversationMap = Record<string, Message[]>; 
 
 export default function App() {
@@ -43,7 +45,7 @@ export default function App() {
     }
   }, [conversations]);
 
-  // 3. POLLING FOR NEW MESSAGES (The "Postman")
+  // 3. POLLING FOR NEW MESSAGES
   useEffect(() => {
     if (!user) return;
     
@@ -52,39 +54,42 @@ export default function App() {
         const newMessages = await api.sync(user.id);
         if (newMessages.length === 0) return;
 
-        // SORT INCOMING MESSAGES INTO CORRECT "BOXES"
         setConversations(prev => {
           const next = { ...prev };
           
           newMessages.forEach((msg: any) => {
-             // If message is from "Alice", put it in "Alice's" box
-             const otherPersonId = msg.fromUser; // Ensure your server sends this!
+             // In a real app, 'msg.fromUser' should come from server. 
+             // If server doesn't send it, we temporarily use a fallback.
+             const otherPersonId = msg.fromUser || "UNKNOWN"; 
              
              if (!next[otherPersonId]) next[otherPersonId] = [];
              
-             // Avoid duplicates
              const exists = next[otherPersonId].some(m => m.id === msg.id);
              if (!exists) {
                next[otherPersonId].push({
                  id: msg.id,
-                 text: msg.payload, // Assuming decrypted text
-                 senderId: otherPersonId,
+                 text: msg.payload, 
+                 sender: otherPersonId, // Fixed: matches interface
                  timestamp: msg.timestamp,
-                 isOwn: false
+                 isOwn: false,
+                 type: 'text',          // Fixed: default type
+                 status: 'delivered'    // Fixed: default status
                });
              }
           });
           return next;
         });
 
-        // Tell server "I got them, delete them"
+        // Acknowledge messages
         const idsToDelete = newMessages.map((m: any) => m.id);
-        await api.ack(user.id, idsToDelete);
+        if (idsToDelete.length > 0) {
+            await api.ack(user.id, idsToDelete);
+        }
 
       } catch (err) {
         console.error("Sync error:", err);
       }
-    }, 3000); // Check every 3 seconds
+    }, 3000); 
 
     return () => clearInterval(interval);
   }, [user]);
@@ -96,12 +101,14 @@ export default function App() {
     const newMessage: Message = {
       id: crypto.randomUUID(),
       text,
-      senderId: user.id,
+      sender: user.id,      // Fixed
       timestamp: Date.now(),
-      isOwn: true
+      isOwn: true,
+      type: 'text',         // Fixed
+      status: 'sent'        // Fixed
     };
 
-    // Optimistic Update: Show it immediately in the correct chat box
+    // Optimistic Update
     setConversations(prev => {
       const next = { ...prev };
       if (!next[activeContactId]) next[activeContactId] = [];
@@ -112,7 +119,7 @@ export default function App() {
     // Send to Server
     await api.send(activeContactId, {
       id: newMessage.id,
-      payload: text, // You should encrypt this!
+      payload: text, 
       fromUser: user.id,
       timestamp: newMessage.timestamp
     });
@@ -124,7 +131,7 @@ export default function App() {
     localStorage.setItem('jchat_user', JSON.stringify(userData));
   };
 
-  // 6. LOGOUT (Optional: Clears local data for privacy)
+  // 6. LOGOUT
   const handleLogout = () => {
     setUser(null);
     setConversations({});
@@ -138,18 +145,18 @@ export default function App() {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  // If no contact selected, show "Contact List" (Simplified)
+  // CONTACT LIST VIEW
   if (!activeContactId) {
     return (
-      <div className="h-screen bg-black text-white p-6 font-mono">
-        <h1 className="text-xl mb-6 border-b border-gray-800 pb-4">MESSAGES</h1>
+      <div className="h-screen bg-black text-white p-6 font-mono flex flex-col">
+        <h1 className="text-xl mb-6 border-b border-gray-800 pb-4 tracking-widest">ENCRYPTED // CHANNELS</h1>
         
-        {/* Simple "Add User" Input for testing */}
         <div className="mb-6">
+           <label className="text-xs text-gray-500 mb-2 block">START NEW SECURE CHANNEL</label>
            <input 
              id="new-chat-id"
-             placeholder="ENTER USER ID TO CHAT..."
-             className="bg-[#111] p-3 w-full text-white border border-[#333] rounded"
+             placeholder="ENTER USER ID..."
+             className="bg-[#111] p-4 w-full text-white border border-[#333] rounded-lg focus:border-white outline-none uppercase tracking-wider"
              onKeyDown={(e) => {
                 if(e.key === 'Enter') {
                    setActiveContactId(e.currentTarget.value.toUpperCase());
@@ -158,43 +165,49 @@ export default function App() {
            />
         </div>
 
-        {/* List of existing conversations */}
-        <div className="space-y-2">
+        <div className="flex-1 overflow-y-auto space-y-2">
           {Object.keys(conversations).map(contactId => (
             <div 
               key={contactId}
               onClick={() => setActiveContactId(contactId)}
-              className="p-4 bg-[#111] border border-[#333] rounded hover:bg-[#222] cursor-pointer flex justify-between"
+              className="p-4 bg-[#111] border border-[#333] rounded-lg hover:bg-[#222] cursor-pointer flex justify-between items-center transition-all active:scale-[0.98]"
             >
-              <span>{contactId}</span>
-              <span className="text-gray-500 text-xs">
+              <span className="font-bold text-lg">{contactId}</span>
+              <span className="text-gray-600 text-xs">
                 {conversations[contactId].length > 0 
-                  ? new Date(conversations[contactId][conversations[contactId].length -1].timestamp).toLocaleTimeString() 
-                  : ''}
+                  ? new Date(conversations[contactId][conversations[contactId].length -1].timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) 
+                  : 'NEW'}
               </span>
             </div>
           ))}
+          {Object.keys(conversations).length === 0 && (
+             <div className="text-center text-gray-600 mt-10 text-sm">NO ACTIVE CHANNELS</div>
+          )}
         </div>
         
-        <button onClick={handleLogout} className="mt-8 text-red-500 text-sm hover:underline">
-          LOGOUT
+        <button onClick={handleLogout} className="mt-6 py-4 text-red-500 text-xs tracking-widest border border-red-900/30 bg-red-900/10 rounded hover:bg-red-900/20">
+          TERMINATE SESSION
         </button>
       </div>
     );
   }
 
-  // If contact selected, show their specific messages
+  // CHAT VIEW
   return (
-    <div className="h-screen flex flex-col">
-       <button 
-         onClick={() => setActiveContactId(null)}
-         className="bg-[#111] text-white p-4 text-left border-b border-[#333]"
-       >
-         ← BACK TO LIST
-       </button>
+    <div className="h-screen flex flex-col bg-black">
+       <div className="bg-black border-b border-[#333] p-4 flex items-center justify-between">
+          <button 
+           onClick={() => setActiveContactId(null)}
+           className="text-white text-sm hover:text-gray-300 font-mono"
+          >
+           ← BACK
+          </button>
+          <span className="text-white font-bold font-mono tracking-wider">{activeContactId}</span>
+          <div className="w-8"></div> {/* Spacer for centering */}
+       </div>
        
        <ChatScreen 
-         messages={conversations[activeContactId] || []} // THE FIX: Only pass this user's messages
+         messages={conversations[activeContactId] || []} 
          onSendMessage={handleSendMessage}
          currentUserId={user.id}
          chatPartnerId={activeContactId}
