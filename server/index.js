@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// DATABASE SETUP
+// --- DATABASE SETUP ---
 const db = new Database('dead_drop.sqlite');
 db.exec(`
   CREATE TABLE IF NOT EXISTS queue (
@@ -17,7 +17,6 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_to_user ON queue(to_user);
   
-  -- THIS IS THE MISSING PART WE NEEDED:
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     public_key TEXT,
@@ -26,7 +25,9 @@ db.exec(`
   );
 `);
 
-// 1. REGISTER USER (The Fix)
+// --- API ROUTES ---
+
+// 1. REGISTER USER
 app.post('/register', (req, res) => {
   const { id, publicKey, avatar } = req.body;
   if (!id) return res.sendStatus(400);
@@ -73,7 +74,7 @@ app.get('/queue/sync/:userId', (req, res) => {
   res.json(out);
 });
 
-// 4. ACKNOWLEDGE (DELETE)
+// 4. ACKNOWLEDGE (DELETE MESSAGES)
 app.post('/queue/ack', (req, res) => {
   const { userId, messageIds } = req.body;
   if (!userId || !Array.isArray(messageIds)) return res.sendStatus(400);
@@ -87,10 +88,32 @@ app.post('/queue/ack', (req, res) => {
   res.sendStatus(200);
 });
 
-// CLEANUP (Run every hour)
+// 5. DELETE ACCOUNT (✅ NEW)
+app.post('/delete', (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.sendStatus(400);
+
+  try {
+    // Delete the User Profile
+    const info = db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    
+    // Delete all messages waiting for them
+    db.prepare('DELETE FROM queue WHERE to_user = ?').run(id);
+    
+    console.log(`Deleted user: ${id}`);
+    res.json({ success: true, deleted: info.changes > 0 });
+  } catch (e) {
+    console.error(e);
+    res.sendStatus(500);
+  }
+});
+
+// --- CLEANUP TASK ---
+// Run every hour to delete messages older than 3 days
 setInterval(() => {
   const cutoff = Date.now() - (3 * 24 * 60 * 60 * 1000);
   db.prepare('DELETE FROM queue WHERE timestamp < ?').run(cutoff);
 }, 60 * 60 * 1000);
 
+// --- START SERVER ---
 app.listen(3000, '0.0.0.0', () => console.log("🚀 Server running on Port 3000"));
