@@ -1,20 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Roboto+Mono:wght@300;400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #000000;
-  color: #FFFFFF;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  -webkit-tap-highlight-color: transparent;
+:root {
+  --bg-color: #000000;
+  --text-color: #ffffff;
 }
 
-.scrollbar-hide::-webkit-scrollbar {
-    display: none;
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: 'Roboto Mono', monospace; /* Default Tech Font */
+  -webkit-font-smoothing: antialiased;
 }
-.scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+
+/* The Signature "Nothing" Header Font */
+h1, h2, .font-dot {
+  font-family: 'DotGothic16', sans-serif;
+  letter-spacing: 0.05em;
+}
+
+/* Custom Scrollbar for Chrome/Edge */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #111;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Safe Area for Mobile (Notch/Home Bar) */
+.pt-safe-top {
+  padding-top: env(safe-area-inset-top, 20px);
+}
+.pb-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+/* Fade In Animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
 }
