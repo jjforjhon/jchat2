@@ -1,141 +1,95 @@
-import { useState, useRef } from 'react';
-import { api } from '../api/server'; // We need to import the API
+import { useState } from 'react';
+import { api } from '../api/server';
 
 interface LoginProps {
-  onLogin: (user: { id: string; name: string; avatar: string; privateKey: string }) => void;
+  onLogin: (user: any) => void;
 }
 
 export const LoginScreen = ({ onLogin }: LoginProps) => {
+  const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('REGISTER');
   const [id, setId] = useState('');
-  const [name, setName] = useState('');
-  const [loading, setLoading] = useState(false); // Add loading state
-  const [error, setError] = useState(''); // Add error state
-  const [avatar, setAvatar] = useState<string>('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const img = new Image();
-        img.src = ev.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          const maxWidth = 150; 
-          const scale = maxWidth / img.width;
-          canvas.width = maxWidth;
-          canvas.height = img.height * scale;
-          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-          setAvatar(canvas.toDataURL('image/jpeg', 0.7));
-        };
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent | null) => {
-    if (e) e.preventDefault();
-    setError('');
-    
-    const finalId = id.trim().toUpperCase();
-    const finalName = name.trim() || 'User-' + finalId;
-    
-    if (!finalId) {
-      setError('ID is required');
-      return;
-    }
-
+  const handleSubmit = async () => {
+    if (!id || !password) return;
     setLoading(true);
+    setError('');
 
     try {
-      // 1. Generate Crypto Keys
-      const keys = await window.crypto.subtle.generateKey(
-        {
-          name: "RSA-OAEP",
-          modulusLength: 2048,
-          publicExponent: new Uint8Array([1, 0, 1]),
-          hash: "SHA-256",
-        },
-        true,
-        ["encrypt", "decrypt"]
-      );
-
-      // 2. Export Public Key to send to Server
-      const pubKeyBuffer = await window.crypto.subtle.exportKey("spki", keys.publicKey);
-      const pubKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(pubKeyBuffer)));
-
-      // 3. Export Private Key to save Locally (NEVER SEND THIS)
-      const privKeyBuffer = await window.crypto.subtle.exportKey("pkcs8", keys.privateKey);
-      const privKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(privKeyBuffer)));
-
-      // 4. Register on Render Server
-      console.log('Registering with server...');
-      await api.register(finalId, pubKeyBase64, avatar);
-
-      // 5. Success! Log in locally
-      onLogin({ 
-        id: finalId, 
-        name: finalName, 
-        avatar: avatar || '',
-        privateKey: privKeyBase64 
-      });
-
+      if (mode === 'REGISTER') {
+        await api.register(id, password, '');
+        // Auto login after register
+        onLogin({ id, password }); 
+      } else {
+        const res = await api.login(id, password);
+        onLogin({ ...res.user, password }); // Save password in local state for reconnects
+      }
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Registration failed. Check internet.');
+      setError(mode === 'LOGIN' ? "INVALID ID OR PASSWORD" : "ID ALREADY EXISTS");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-black text-white font-mono p-6">
-      <div className="w-full max-w-sm border border-[#333] p-8 rounded-[32px] bg-[#0A0A0A]">
-        <h1 className="text-2xl font-bold mb-8 text-center tracking-tighter">J-CHAT // PROFILE</h1>
-        
-        <div className="flex justify-center mb-6">
-          <div 
-            onClick={() => fileInputRef.current?.click()}
-            className="w-24 h-24 rounded-full border border-[#333] bg-[#111] flex items-center justify-center overflow-hidden cursor-pointer hover:border-white transition-all relative"
-          >
-            {avatar ? (
-              <img src={avatar} alt="avatar" className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-2xl text-[#666]">+</span>
-            )}
-            <div className="absolute bottom-0 w-full bg-black/50 text-[8px] text-center py-1">PHOTO</div>
-          </div>
-          <input type="file" ref={fileInputRef} onChange={handleAvatarUpload} className="hidden" accept="image/*" />
+    <div className="h-screen bg-black text-white font-mono flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-md space-y-8">
+        {/* LOGO */}
+        <div className="text-center space-y-2">
+          <div className="text-5xl font-bold tracking-tighter">J-CHAT</div>
+          <div className="text-xs tracking-[0.3em] text-gray-500">ENCRYPTED // PERSISTENT</div>
         </div>
 
+        {/* TABS */}
+        <div className="flex border border-[#333] rounded p-1">
+          {['REGISTER', 'LOGIN'].map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m as any)}
+              className={`flex-1 py-3 text-xs tracking-widest transition-all ${
+                mode === m ? 'bg-white text-black' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+
+        {/* FORM */}
         <div className="space-y-4">
-          <input 
-            type="text" 
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            placeholder="CHOOSE UNIQUE ID"
-            className="w-full bg-black border border-[#333] p-4 rounded-xl text-white text-sm focus:border-white outline-none uppercase placeholder-[#444]"
-          />
-          <input 
-            type="text" 
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="DISPLAY NAME"
-            className="w-full bg-black border border-[#333] p-4 rounded-xl text-white text-sm focus:border-white outline-none placeholder-[#444]"
-          />
+          <div className="space-y-1">
+            <label className="text-[10px] text-gray-500 ml-1">USER ID</label>
+            <input
+              value={id}
+              onChange={(e) => setId(e.target.value.toUpperCase())}
+              className="w-full bg-[#111] border border-[#333] p-4 text-white outline-none focus:border-white transition-colors rounded-lg"
+              placeholder="ENTER UNIQUE ID"
+            />
+          </div>
           
-          {error && <p className="text-red-500 text-xs text-center">{error}</p>}
-
-          <button 
-            onClick={(e) => handleSubmit(e)} 
-            disabled={loading}
-            className="w-full bg-white text-black font-bold py-4 rounded-full uppercase tracking-widest hover:bg-[#ccc] active:scale-95 transition-all mt-4 disabled:opacity-50"
-          >
-            {loading ? 'Registering...' : 'Create Account'}
-          </button>
+          <div className="space-y-1">
+            <label className="text-[10px] text-gray-500 ml-1">PASSWORD</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-[#111] border border-[#333] p-4 text-white outline-none focus:border-white transition-colors rounded-lg"
+              placeholder="SECURE PASSWORD"
+            />
+          </div>
         </div>
+
+        {error && <div className="text-red-500 text-xs text-center border border-red-900/50 p-2 bg-red-900/10">{error}</div>}
+
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !id || !password}
+          className="w-full bg-white text-black font-bold py-4 rounded-lg tracking-widest hover:bg-gray-200 disabled:opacity-50 transition-all"
+        >
+          {loading ? 'PROCESSING...' : mode === 'REGISTER' ? 'CREATE IDENTITY' : 'RESTORE SESSION'}
+        </button>
       </div>
     </div>
   );
