@@ -102,7 +102,7 @@ app.get('/sync/:userId', (req, res) => {
   })));
 });
 
-// 6. ADD REACTION (Fixed)
+// 6. ADD REACTION
 app.post('/react', (req, res) => {
   const { messageId, emoji } = req.body;
   const msg = db.prepare('SELECT reactions FROM messages WHERE id = ?').get(messageId);
@@ -115,7 +115,7 @@ app.post('/react', (req, res) => {
   res.json({ success: true });
 });
 
-// 7. DELETE ACCOUNT (Fixed)
+// 7. DELETE ACCOUNT
 app.post('/delete', (req, res) => {
   const { id, password } = req.body;
   const hash = crypto.createHash('sha256').update(password).digest('hex');
@@ -126,6 +126,17 @@ app.post('/delete', (req, res) => {
       res.json({ success: true });
   } else {
       res.status(401).json({ error: "Invalid credentials" });
+  }
+});
+
+// 8. GET USER AVATAR (✅ NEW: Allows fetching other users' pics)
+app.get('/user/:id', (req, res) => {
+  try {
+    const user = db.prepare('SELECT avatar FROM users WHERE id = ?').get(req.params.id);
+    // Return avatar if exists, or null
+    res.json({ avatar: user ? user.avatar : null });
+  } catch (e) {
+    res.sendStatus(500);
   }
 });
 
