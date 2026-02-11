@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 
-// ✅ FIX 1: Add 'status' to the Message interface
 export interface Message {
   id: string;
   text: string;
@@ -8,7 +7,7 @@ export interface Message {
   timestamp: number;
   type: 'text' | 'image' | 'video';
   reactions?: string[];
-  status?: 'sent' | 'delivered' | 'read'; // Added this line
+  status?: 'sent' | 'delivered' | 'read';
 }
 
 interface ChatProps {
@@ -29,13 +28,13 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => { scrollToBottom(); }, [messages]);
 
+  // ✅ FIX: Clear input after sending
   const handleSendText = () => {
     if (!inputText.trim()) return;
     onSendMessage(inputText, 'text');
@@ -57,7 +56,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
   return (
     <div className="flex flex-col h-full bg-black text-white font-mono relative">
       
-      {/* LIGHTBOX */}
       {lightboxMedia && (
         <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4" onClick={() => setLightboxMedia(null)}>
           <button className="absolute top-8 right-8 text-white text-4xl font-light hover:text-gray-400">×</button>
@@ -69,12 +67,10 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
         </div>
       )}
 
-      {/* OPTIONS MENU */}
       <div className="absolute top-4 right-4 z-20">
         <button onClick={() => setShowMenu(!showMenu)} className="text-2xl px-2 text-gray-400 hover:text-white transition-colors">⋮</button>
         {showMenu && (
           <div className="absolute right-0 mt-2 w-48 bg-black border border-white shadow-xl z-30">
-             {/* ✅ FIX 2: Use 'partnerId' here to make the button text dynamic */}
             <button onClick={onBlock} className="w-full text-left p-4 text-xs tracking-widest hover:bg-white hover:text-black border-b border-[#333] transition-colors uppercase">
               BLOCK {partnerId}
             </button>
@@ -83,7 +79,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
         )}
       </div>
 
-      {/* MESSAGES AREA */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6 pt-16" onClick={() => setActiveReactionId(null)}>
         {messages.map((msg) => (
           <div key={msg.id} className={`flex flex-col max-w-[85%] ${msg.sender === 'me' ? 'self-end items-end' : 'self-start items-start'}`}>
@@ -114,7 +109,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
                 />
               )}
               
-              {/* REACTION BAR */}
               {activeReactionId === msg.id && (
                 <div className="absolute -top-12 left-0 bg-black border border-white p-2 flex gap-2 shadow-2xl z-10">
                   {['👍','❤️','💀','🔥'].map(emoji => (
@@ -124,7 +118,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
               )}
             </div>
 
-            {/* STATUS & REACTIONS */}
             <div className="flex items-center gap-2 mt-1">
                {msg.reactions && msg.reactions.length > 0 && (
                  <div className="flex gap-1 text-[10px] bg-[#222] border border-[#333] px-2 py-0.5 rounded-full">
@@ -133,7 +126,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
                )}
                <span className="text-[9px] text-gray-500 tracking-wider">
                  {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                 {/* ✅ FIX 3: Now 'status' exists on Message type, so this works */}
                  {msg.sender === 'me' && msg.status && ` • ${msg.status.toUpperCase()}`}
                </span>
             </div>
@@ -142,7 +134,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
         <div ref={messagesEndRef} />
       </div>
 
-      {/* INPUT AREA */}
       <div className="p-4 bg-black border-t border-[#333] flex items-center gap-3">
         <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} accept="image/*,video/*" />
         
@@ -157,7 +148,7 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-          placeholder={`MESSAGE ${partnerId}...`} // Added partnerId here too for clarity
+          placeholder={`MESSAGE ${partnerId}...`} 
           className="flex-1 bg-[#111] border border-[#333] rounded-full px-5 py-3 text-white outline-none focus:border-white focus:bg-black transition-colors placeholder-gray-600 text-sm tracking-wider"
         />
         
