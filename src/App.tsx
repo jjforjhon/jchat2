@@ -14,7 +14,7 @@ export default function App() {
   // 1. LOAD SESSION (User + Chats + Blocklist)
   useEffect(() => {
     const savedUser = localStorage.getItem('jchat_user');
-    const savedChats = localStorage.getItem('jchat_conversations'); // ✅ RESTORE CHATS
+    const savedChats = localStorage.getItem('jchat_conversations'); 
     const savedBlocklist = localStorage.getItem('jchat_blocked');
     
     if (savedUser) setUser(JSON.parse(savedUser));
@@ -27,7 +27,7 @@ export default function App() {
   // 2. AUTO-SAVE CHATS (Persistence)
   useEffect(() => {
     if (Object.keys(conversations).length > 0) {
-      localStorage.setItem('jchat_conversations', JSON.stringify(conversations)); // ✅ SAVE CHATS
+      localStorage.setItem('jchat_conversations', JSON.stringify(conversations)); 
     }
   }, [conversations]);
 
@@ -35,7 +35,6 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // ✅ FIX: Start from the latest message we have, OR 0 (fetch all) if empty
     let lastTimestamp = 0;
     const allMsgs = Object.values(conversations).flat();
     if (allMsgs.length > 0) {
@@ -44,7 +43,6 @@ export default function App() {
 
     const interval = setInterval(async () => {
       try {
-        // Fetch only what we missed since last check
         const history = await api.sync(user.id, lastTimestamp); 
         
         if (history.length === 0) return;
@@ -62,7 +60,7 @@ export default function App() {
             if (!exists) {
               nextConvos[partner].push({
                 id: msg.id,
-                text: msg.payload,
+                text: msg.payload, // Sync maps this correctly
                 sender: msg.fromUser === user.id ? 'me' : 'them',
                 timestamp: msg.timestamp,
                 type: msg.type,
@@ -70,10 +68,8 @@ export default function App() {
                 status: 'delivered'
               });
               
-              // Update local tracker
               if (msg.timestamp > lastTimestamp) lastTimestamp = msg.timestamp;
               
-              // Notification
               if (msg.fromUser !== user.id) {
                  if (document.hidden && Notification.permission === "granted") {
                    new Notification(`New message from ${partner}`);
@@ -88,7 +84,7 @@ export default function App() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [user, blockedUsers]); // Removed 'conversations' dependency to prevent loop reset
+  }, [user, blockedUsers]); 
 
   // ACTIONS
   const handleSendMessage = async (content: string, type: 'text' | 'image' | 'video') => {
@@ -105,7 +101,10 @@ export default function App() {
     setConversations(prev => {
         const next = {...prev};
         if(!next[activeContactId]) next[activeContactId] = [];
-        next[activeContactId].push({...msg, sender: 'me', status: 'sent'} as any);
+        
+        // ✅ FIX: Added 'text: content' here so the UI can see it immediately!
+        next[activeContactId].push({...msg, text: content, sender: 'me', status: 'sent'} as any);
+        
         return next;
     });
 
@@ -132,7 +131,7 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('jchat_user');
-    localStorage.removeItem('jchat_conversations'); // ✅ CLEAR ON LOGOUT
+    localStorage.removeItem('jchat_conversations'); 
     setUser(null);
     setConversations({});
     setActiveContactId(null);
