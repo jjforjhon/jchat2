@@ -31,7 +31,7 @@ export default function App() {
     }
   }, [conversations]);
 
-  // 3. INTELLIGENT SYNC LOOP
+  // 3. INTELLIGENT SYNC LOOP (With Safety Buffer)
   useEffect(() => {
     if (!user) return;
 
@@ -43,7 +43,10 @@ export default function App() {
 
     const interval = setInterval(async () => {
       try {
-        const history = await api.sync(user.id, lastTimestamp); 
+        // ✅ FIX 4: Safety Buffer (Fetch last 5 seconds again to ensure nothing is missed)
+        // If lastTimestamp is 0, fetch all. Otherwise, rewind 5000ms.
+        const safeTime = lastTimestamp > 0 ? lastTimestamp - 5000 : 0;
+        const history = await api.sync(user.id, safeTime); 
         
         if (history.length === 0) return;
 
@@ -56,11 +59,12 @@ export default function App() {
 
             if (!nextConvos[partner]) nextConvos[partner] = [];
             
+            // Prevent duplicates (Crucial since we are fetching overlapping time)
             const exists = nextConvos[partner].some((m: Message) => m.id === msg.id);
             if (!exists) {
               nextConvos[partner].push({
                 id: msg.id,
-                text: msg.payload, // Sync maps this correctly
+                text: msg.payload, 
                 sender: msg.fromUser === user.id ? 'me' : 'them',
                 timestamp: msg.timestamp,
                 type: msg.type,
@@ -101,10 +105,7 @@ export default function App() {
     setConversations(prev => {
         const next = {...prev};
         if(!next[activeContactId]) next[activeContactId] = [];
-        
-        // ✅ FIX: Added 'text: content' here so the UI can see it immediately!
         next[activeContactId].push({...msg, text: content, sender: 'me', status: 'sent'} as any);
-        
         return next;
     });
 
@@ -131,10 +132,25 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('jchat_user');
-    localStorage.removeItem('jchat_conversations'); 
+    // We DO NOT clear conversations on simple logout anymore, to keep history
+    // localStorage.removeItem('jchat_conversations'); 
     setUser(null);
     setConversations({});
     setActiveContactId(null);
+  };
+
+  // ✅ FIX 2: Delete Account Function
+  const handleDeleteAccount = async () => {
+    if (!confirm("WARNING: THIS WILL PERMANENTLY DELETE YOUR ACCOUNT AND MESSAGES.\n\nAre you sure?")) return;
+    if (!user) return;
+
+    try {
+      await api.deleteAccount(user.id, user.password);
+      localStorage.clear(); // Wipe everything
+      location.reload(); // Force reload to reset state
+    } catch (e) {
+      alert("Delete failed. Check connection.");
+    }
   };
 
   if (!user) return <LoginScreen onLogin={(u) => { setUser(u); localStorage.setItem('jchat_user', JSON.stringify(u)); }} />;
@@ -203,9 +219,14 @@ export default function App() {
           )}
         </div>
 
-        <div className="pt-6 border-t border-[#222] mt-4 pb-safe-bottom">
-           <button onClick={handleLogout} className="w-full py-4 text-red-900 text-[10px] tracking-[0.3em] border border-[#222] bg-black rounded-xl hover:bg-red-900/10 hover:text-red-500 hover:border-red-900/50 transition-all">
-              TERMINATE SESSION
+        {/* ✅ FIX 1 & 2: Footer with LOG OUT and DELETE ACCOUNT */}
+        <div className="pt-6 border-t border-[#222] mt-4 pb-safe-bottom space-y-3">
+           <button onClick={handleLogout} className="w-full py-4 text-white text-[10px] tracking-[0.3em] border border-[#222] bg-[#111] rounded-xl hover:bg-white hover:text-black transition-all">
+              LOG OUT
+           </button>
+           
+           <button onClick={handleDeleteAccount} className="w-full py-3 text-red-700 text-[10px] tracking-[0.2em] hover:text-red-500 transition-colors">
+              DELETE ACCOUNT
            </button>
         </div>
       </div>
