@@ -30,10 +30,10 @@ export const api = {
     return res.ok;
   },
 
-  // ✅ NEW: Fetch another user's info
+  // ✅ FIXED: Safer URL handling
   getUser: async (id: string) => {
     try {
-      const res = await fetch(`${API_URL}/user/${id}`);
+      const res = await fetch(`${API_URL}/user/${encodeURIComponent(id)}`);
       return res.ok ? await res.json() : null;
     } catch { return null; }
   },
