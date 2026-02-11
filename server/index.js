@@ -55,7 +55,7 @@ app.post('/login', (req, res) => {
   else res.status(401).json({ error: "Invalid Credentials" });
 });
 
-// 3. UPDATE PROFILE (NEW)
+// 3. UPDATE PROFILE
 app.post('/update-profile', (req, res) => {
   const { id, password, avatar, name } = req.body;
   const hash = crypto.createHash('sha256').update(password).digest('hex');
@@ -95,15 +95,46 @@ app.get('/sync/:userId', (req, res) => {
     id: r.id,
     fromUser: r.from_user,
     toUser: r.to_user,
-    payload: r.payload, // This contains text or Base64 image
+    payload: r.payload, 
     type: r.type,
     timestamp: r.timestamp,
     reactions: JSON.parse(r.reactions || '[]')
   })));
 });
 
-// 6. DELETE & REACT (Keep existing logic)
-app.post('/delete', (req, res) => { /* Same as before */ });
-app.post('/react', (req, res) => { /* Same as before */ });
+// 6. ADD REACTION (Fixed)
+app.post('/react', (req, res) => {
+  const { messageId, emoji } = req.body;
+  const msg = db.prepare('SELECT reactions FROM messages WHERE id = ?').get(messageId);
+  if (!msg) return res.sendStatus(404);
 
-app.listen(3000, '0.0.0.0', () => console.log("🚀 Server running on 3000"));
+  let reactions = JSON.parse(msg.reactions || '[]');
+  reactions.push(emoji);
+  
+  db.prepare('UPDATE messages SET reactions = ? WHERE id = ?').run(JSON.stringify(reactions), messageId);
+  res.json({ success: true });
+});
+
+// 7. DELETE ACCOUNT (Fixed)
+app.post('/delete', (req, res) => {
+  const { id, password } = req.body;
+  const hash = crypto.createHash('sha256').update(password).digest('hex');
+  
+  const info = db.prepare('DELETE FROM users WHERE id = ? AND password_hash = ?').run(id, hash);
+  if(info.changes > 0) {
+      db.prepare('DELETE FROM messages WHERE from_user = ? OR to_user = ?').run(id, id);
+      res.json({ success: true });
+  } else {
+      res.status(401).json({ error: "Invalid credentials" });
+  }
+});
+
+// --- CLEANUP TASK ---
+// Run every hour to delete messages older than 30 days (optional privacy feature)
+setInterval(() => {
+  const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
+  db.prepare('DELETE FROM messages WHERE timestamp < ?').run(cutoff);
+}, 60 * 60 * 1000);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on Port ${PORT}`));
