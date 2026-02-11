@@ -7,11 +7,12 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [conversations, setConversations] = useState<Record<string, Message[]>>({});
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
+  const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null); // ✅ NEW State
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. LOAD SESSION (User + Chats + Blocklist)
+  // 1. LOAD SESSION
   useEffect(() => {
     const savedUser = localStorage.getItem('jchat_user');
     const savedChats = localStorage.getItem('jchat_conversations'); 
@@ -24,14 +25,24 @@ export default function App() {
     if ("Notification" in window) Notification.requestPermission();
   }, []);
 
-  // 2. AUTO-SAVE CHATS (Persistence)
+  // 2. AUTO-SAVE CHATS
   useEffect(() => {
     if (Object.keys(conversations).length > 0) {
       localStorage.setItem('jchat_conversations', JSON.stringify(conversations)); 
     }
   }, [conversations]);
 
-  // 3. INTELLIGENT SYNC LOOP (With Safety Buffer)
+  // 3. FETCH PARTNER AVATAR (✅ NEW Effect)
+  useEffect(() => {
+    if (activeContactId) {
+      setPartnerAvatar(null); // Reset while loading
+      api.getUser(activeContactId).then(data => {
+        if (data && data.avatar) setPartnerAvatar(data.avatar);
+      });
+    }
+  }, [activeContactId]);
+
+  // 4. INTELLIGENT SYNC LOOP
   useEffect(() => {
     if (!user) return;
 
@@ -43,8 +54,6 @@ export default function App() {
 
     const interval = setInterval(async () => {
       try {
-        // ✅ FIX 4: Safety Buffer (Fetch last 5 seconds again to ensure nothing is missed)
-        // If lastTimestamp is 0, fetch all. Otherwise, rewind 5000ms.
         const safeTime = lastTimestamp > 0 ? lastTimestamp - 5000 : 0;
         const history = await api.sync(user.id, safeTime); 
         
@@ -59,7 +68,6 @@ export default function App() {
 
             if (!nextConvos[partner]) nextConvos[partner] = [];
             
-            // Prevent duplicates (Crucial since we are fetching overlapping time)
             const exists = nextConvos[partner].some((m: Message) => m.id === msg.id);
             if (!exists) {
               nextConvos[partner].push({
@@ -132,22 +140,19 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('jchat_user');
-    // We DO NOT clear conversations on simple logout anymore, to keep history
-    // localStorage.removeItem('jchat_conversations'); 
     setUser(null);
     setConversations({});
     setActiveContactId(null);
   };
 
-  // ✅ FIX 2: Delete Account Function
   const handleDeleteAccount = async () => {
     if (!confirm("WARNING: THIS WILL PERMANENTLY DELETE YOUR ACCOUNT AND MESSAGES.\n\nAre you sure?")) return;
     if (!user) return;
 
     try {
       await api.deleteAccount(user.id, user.password);
-      localStorage.clear(); // Wipe everything
-      location.reload(); // Force reload to reset state
+      localStorage.clear(); 
+      location.reload(); 
     } catch (e) {
       alert("Delete failed. Check connection.");
     }
@@ -219,7 +224,6 @@ export default function App() {
           )}
         </div>
 
-        {/* ✅ FIX 1 & 2: Footer with LOG OUT and DELETE ACCOUNT */}
         <div className="pt-6 border-t border-[#222] mt-4 pb-safe-bottom space-y-3">
            <button onClick={handleLogout} className="w-full py-4 text-white text-[10px] tracking-[0.3em] border border-[#222] bg-[#111] rounded-xl hover:bg-white hover:text-black transition-all">
               LOG OUT
@@ -235,11 +239,22 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-black">
+      {/* ✅ NEW: HEADER WITH PARTNER AVATAR BOX */}
       <div className="p-4 border-b border-[#333] flex justify-between items-center pt-safe-top bg-black z-10">
-        <button onClick={() => setActiveContactId(null)} className="text-xs tracking-widest px-4 py-2 border border-[#333] rounded-full hover:bg-white hover:text-black transition-colors">← BACK</button>
-        <span className="font-bold font-dot tracking-widest text-sm">{activeContactId}</span>
-        <div className="w-12"></div>
+        <button onClick={() => setActiveContactId(null)} className="text-xs tracking-widest px-4 py-2 border border-[#333] rounded-full hover:bg-white hover:text-black transition-colors w-20">← BACK</button>
+        
+        <div className="flex items-center gap-3">
+           {partnerAvatar ? (
+             <img src={partnerAvatar} className="w-8 h-8 rounded bg-[#111] object-cover border border-[#333]" />
+           ) : (
+             <div className="w-8 h-8 rounded bg-[#111] border border-[#333] flex items-center justify-center text-[10px] text-gray-500">?</div>
+           )}
+           <span className="font-bold font-dot tracking-widest text-sm">{activeContactId}</span>
+        </div>
+        
+        <div className="w-20"></div> {/* Spacer to keep center alignment */}
       </div>
+
       <div className="flex-1 overflow-hidden relative">
         <ChatScreen 
           messages={conversations[activeContactId] || []}
