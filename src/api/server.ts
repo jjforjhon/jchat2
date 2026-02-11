@@ -1,9 +1,6 @@
 const API_URL = "https://jchat-server.onrender.com";
 
 export const api = {
-  // ... (keep register, login, send, sync, react, deleteAccount as they were) ...
-  // ONLY ADD THIS NEW FUNCTION:
-
   register: async (id: string, password: string, avatar: string) => {
     const res = await fetch(`${API_URL}/register`, {
       method: 'POST',
@@ -31,6 +28,14 @@ export const api = {
       body: JSON.stringify({ id, password, avatar, name })
     });
     return res.ok;
+  },
+
+  // ✅ NEW: Fetch another user's info
+  getUser: async (id: string) => {
+    try {
+      const res = await fetch(`${API_URL}/user/${id}`);
+      return res.ok ? await res.json() : null;
+    } catch { return null; }
   },
 
   send: async (msg: any) => {
