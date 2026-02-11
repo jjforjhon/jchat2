@@ -14,7 +14,7 @@ body {
   color: var(--text-color);
   font-family: 'Roboto Mono', monospace; /* Default Tech Font */
   -webkit-font-smoothing: antialiased;
-  overflow: hidden; /* Prevent body scroll */
+  overflow: hidden; 
 }
 
 /* The Signature "Nothing" Header Font */
