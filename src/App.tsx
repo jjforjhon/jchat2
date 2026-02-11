@@ -11,25 +11,44 @@ export default function App() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 1. LOAD SESSION (User + Chats + Blocklist)
   useEffect(() => {
     const savedUser = localStorage.getItem('jchat_user');
+    const savedChats = localStorage.getItem('jchat_conversations'); // ✅ RESTORE CHATS
     const savedBlocklist = localStorage.getItem('jchat_blocked');
+    
     if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedChats) setConversations(JSON.parse(savedChats));
     if (savedBlocklist) setBlockedUsers(JSON.parse(savedBlocklist));
+    
     if ("Notification" in window) Notification.requestPermission();
   }, []);
 
+  // 2. AUTO-SAVE CHATS (Persistence)
+  useEffect(() => {
+    if (Object.keys(conversations).length > 0) {
+      localStorage.setItem('jchat_conversations', JSON.stringify(conversations)); // ✅ SAVE CHATS
+    }
+  }, [conversations]);
+
+  // 3. INTELLIGENT SYNC LOOP
   useEffect(() => {
     if (!user) return;
-    let lastKnownTimestamp = Date.now(); 
+
+    // ✅ FIX: Start from the latest message we have, OR 0 (fetch all) if empty
+    let lastTimestamp = 0;
+    const allMsgs = Object.values(conversations).flat();
+    if (allMsgs.length > 0) {
+      lastTimestamp = Math.max(...allMsgs.map(m => m.timestamp));
+    }
 
     const interval = setInterval(async () => {
       try {
-        const history = await api.sync(user.id, lastKnownTimestamp - 10000); 
+        // Fetch only what we missed since last check
+        const history = await api.sync(user.id, lastTimestamp); 
         
         if (history.length === 0) return;
 
-        // ✅ FIX: Use functional update to avoid wiping old messages
         setConversations(prevConvos => {
           const nextConvos = { ...prevConvos };
 
@@ -51,8 +70,10 @@ export default function App() {
                 status: 'delivered'
               });
               
-              if (msg.timestamp > lastKnownTimestamp) lastKnownTimestamp = msg.timestamp;
+              // Update local tracker
+              if (msg.timestamp > lastTimestamp) lastTimestamp = msg.timestamp;
               
+              // Notification
               if (msg.fromUser !== user.id) {
                  if (document.hidden && Notification.permission === "granted") {
                    new Notification(`New message from ${partner}`);
@@ -67,8 +88,9 @@ export default function App() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [user, blockedUsers]);
+  }, [user, blockedUsers]); // Removed 'conversations' dependency to prevent loop reset
 
+  // ACTIONS
   const handleSendMessage = async (content: string, type: 'text' | 'image' | 'video') => {
     if (!activeContactId) return;
     const msg = {
@@ -110,6 +132,7 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('jchat_user');
+    localStorage.removeItem('jchat_conversations'); // ✅ CLEAR ON LOGOUT
     setUser(null);
     setConversations({});
     setActiveContactId(null);
