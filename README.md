@@ -5,7 +5,7 @@
 ![License MIT](https://img.shields.io/badge/license-MIT-white?style=for-the-badge)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18606793.svg)](https://doi.org/10.5281/zenodo.18606793)
 
-**J-Chat 2** is a secure, persistent, and aesthetically distinct messaging application designed with the **"Nothing OS"** design philosophy. It prioritizes user privacy through end-to-end encrypted channels while offering a high-fidelity monochrome user interface.
+**J-Chat 2** is a secure, persistent, and aesthetically distinct messaging application designed with the **"Black & white"** design philosophy. It prioritizes user privacy through end-to-end encrypted channels while offering a high-fidelity monochrome user interface.
 
 Built using **React (TypeScript)**, **Node.js**, and **SQLite**, J-Chat 2 allows for real-time communication, media sharing, and persistent identity management without relying on traditional centralized data harvesting.
 
@@ -85,3 +85,4 @@ If you use **J-Chat 2** in your research or academic work, please cite it as fol
   doi = {10.5281/zenodo.18606793},
   url = {[https://doi.org/10.5281/zenodo.18606793](https://doi.org/10.5281/zenodo.18606793)}
 }
+
