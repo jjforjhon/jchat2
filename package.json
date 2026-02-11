@@ -1,7 +1,7 @@
 {
   "name": "j-chat",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -47,15 +47,22 @@
     "typescript": "^5.2.2",
     "vite": "^5.0.0"
   },
-  "description": "\"# jchat2\" \r #\u0000 \u0000j\u0000c\u0000h\u0000a\u0000t\u00002\u0000\r\u0000 \u0000",
+  "description": "J-Chat 2: A Secure Messaging Application with Nothing OS Aesthetics",
   "main": "postcss.config.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jjforjhon/jchat2.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "secure-messenger",
+    "react",
+    "typescript",
+    "nothing-os",
+    "encryption",
+    "sqlite"
+  ],
+  "author": "Jubayer Samse Alif",
+  "license": "(Apache-2.0 OR MIT)",
   "bugs": {
     "url": "https://github.com/jjforjhon/jchat2/issues"
   },
