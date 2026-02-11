@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 
 export interface Message {
   id: string;
-  text: string;
+  text: string; // The payload (text or base64 image)
   sender: 'me' | 'them';
   timestamp: number;
   type: 'text' | 'image' | 'video';
@@ -34,7 +34,6 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
 
   useEffect(() => { scrollToBottom(); }, [messages]);
 
-  // ✅ FIX: Clear input after sending
   const handleSendText = () => {
     if (!inputText.trim()) return;
     onSendMessage(inputText, 'text');
@@ -42,15 +41,53 @@ export const ChatScreen = ({ messages, onSendMessage, onReact, onBlock, onDelete
     setTimeout(scrollToBottom, 100); 
   };
 
+  // ✅ FIX 3: Optimize Image (Compress & Resize) to prevent Black Screen on Android
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const type = file.type.startsWith('video') ? 'video' : 'image';
-      onSendMessage(reader.result as string, type);
-    };
-    reader.readAsDataURL(file);
+
+    if (file.type.startsWith('video')) {
+      // Videos are heavier, treat carefully (or keep as FileReader for now)
+      const reader = new FileReader();
+      reader.onload = () => onSendMessage(reader.result as string, 'video');
+      reader.readAsDataURL(file);
+    } else {
+      // IMAGE OPTIMIZATION PIPELINE
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 1024; // Limit max dimension to 1024px
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            // Convert to JPEG with 0.7 quality to save bandwidth & memory
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            onSendMessage(compressedBase64, 'image');
+          }
+        };
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   return (
