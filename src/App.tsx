@@ -7,7 +7,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [conversations, setConversations] = useState<Record<string, Message[]>>({});
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
-  const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null); // ✅ NEW State
+  const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null);
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,12 +32,15 @@ export default function App() {
     }
   }, [conversations]);
 
-  // 3. FETCH PARTNER AVATAR (✅ NEW Effect)
+  // 3. FETCH PARTNER AVATAR
   useEffect(() => {
     if (activeContactId) {
-      setPartnerAvatar(null); // Reset while loading
+      setPartnerAvatar(null); 
       api.getUser(activeContactId).then(data => {
-        if (data && data.avatar) setPartnerAvatar(data.avatar);
+        // Only update if we got a valid string back
+        if (data && typeof data.avatar === 'string') {
+           setPartnerAvatar(data.avatar);
+        }
       });
     }
   }, [activeContactId]);
@@ -239,7 +242,6 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-black">
-      {/* ✅ NEW: HEADER WITH PARTNER AVATAR BOX */}
       <div className="p-4 border-b border-[#333] flex justify-between items-center pt-safe-top bg-black z-10">
         <button onClick={() => setActiveContactId(null)} className="text-xs tracking-widest px-4 py-2 border border-[#333] rounded-full hover:bg-white hover:text-black transition-colors w-20">← BACK</button>
         
@@ -252,7 +254,7 @@ export default function App() {
            <span className="font-bold font-dot tracking-widest text-sm">{activeContactId}</span>
         </div>
         
-        <div className="w-20"></div> {/* Spacer to keep center alignment */}
+        <div className="w-20"></div> 
       </div>
 
       <div className="flex-1 overflow-hidden relative">
