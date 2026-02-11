@@ -5,10 +5,14 @@ const crypto = require('crypto');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Large limit for images
+app.use(express.json({ limit: '50mb' }));
 
 // DATABASE
 const db = new Database('jchat_persistent.sqlite');
+
+// Enable WAL mode for better concurrency
+db.pragma('journal_mode = WAL');
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -29,6 +33,13 @@ db.exec(`
     reactions TEXT DEFAULT '[]'
   );
 `);
+
+// ✅ AUTO-MIGRATION: Fixes old databases missing the 'avatar' column
+const columns = db.prepare("PRAGMA table_info(users)").all();
+if (!columns.some(c => c.name === 'avatar')) {
+  console.log("Migrating: Adding avatar column to users table...");
+  db.prepare("ALTER TABLE users ADD COLUMN avatar TEXT").run();
+}
 
 // 1. REGISTER
 app.post('/register', (req, res) => {
@@ -129,19 +140,19 @@ app.post('/delete', (req, res) => {
   }
 });
 
-// 8. GET USER AVATAR (✅ NEW: Allows fetching other users' pics)
+// 8. GET USER AVATAR
 app.get('/user/:id', (req, res) => {
   try {
     const user = db.prepare('SELECT avatar FROM users WHERE id = ?').get(req.params.id);
     // Return avatar if exists, or null
     res.json({ avatar: user ? user.avatar : null });
   } catch (e) {
+    console.error(e);
     res.sendStatus(500);
   }
 });
 
 // --- CLEANUP TASK ---
-// Run every hour to delete messages older than 30 days (optional privacy feature)
 setInterval(() => {
   const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
   db.prepare('DELETE FROM messages WHERE timestamp < ?').run(cutoff);
