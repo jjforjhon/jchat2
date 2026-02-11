@@ -11,7 +11,6 @@ export default function App() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // LOAD SESSION
   useEffect(() => {
     const savedUser = localStorage.getItem('jchat_user');
     const savedBlocklist = localStorage.getItem('jchat_blocked');
@@ -20,21 +19,19 @@ export default function App() {
     if ("Notification" in window) Notification.requestPermission();
   }, []);
 
-  // SYNC LOOP & NOTIFICATIONS
   useEffect(() => {
     if (!user) return;
     let lastKnownTimestamp = Date.now(); 
 
     const interval = setInterval(async () => {
       try {
-        // Fetch only new messages
         const history = await api.sync(user.id, lastKnownTimestamp - 10000); 
         
         if (history.length === 0) return;
 
-        // ✅ FIX: Use functional update to access the LATEST state
+        // ✅ FIX: Use functional update to avoid wiping old messages
         setConversations(prevConvos => {
-          const nextConvos = { ...prevConvos }; // Safe copy of current state
+          const nextConvos = { ...prevConvos };
 
           history.forEach((msg: any) => {
             const partner = msg.fromUser === user.id ? msg.toUser : msg.fromUser;
@@ -42,7 +39,6 @@ export default function App() {
 
             if (!nextConvos[partner]) nextConvos[partner] = [];
             
-            // Prevent duplicates
             const exists = nextConvos[partner].some((m: Message) => m.id === msg.id);
             if (!exists) {
               nextConvos[partner].push({
@@ -52,12 +48,11 @@ export default function App() {
                 timestamp: msg.timestamp,
                 type: msg.type,
                 reactions: msg.reactions,
-                status: 'delivered' // Ensure status is set
+                status: 'delivered'
               });
               
               if (msg.timestamp > lastKnownTimestamp) lastKnownTimestamp = msg.timestamp;
               
-              // Notification Logic
               if (msg.fromUser !== user.id) {
                  if (document.hidden && Notification.permission === "granted") {
                    new Notification(`New message from ${partner}`);
@@ -72,9 +67,8 @@ export default function App() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [user, blockedUsers]); // 'conversations' is NOT needed here anymore
+  }, [user, blockedUsers]);
 
-  // ACTIONS
   const handleSendMessage = async (content: string, type: 'text' | 'image' | 'video') => {
     if (!activeContactId) return;
     const msg = {
@@ -86,7 +80,6 @@ export default function App() {
       timestamp: Date.now()
     };
     
-    // Optimistic Update
     setConversations(prev => {
         const next = {...prev};
         if(!next[activeContactId]) next[activeContactId] = [];
@@ -124,7 +117,6 @@ export default function App() {
 
   if (!user) return <LoginScreen onLogin={(u) => { setUser(u); localStorage.setItem('jchat_user', JSON.stringify(u)); }} />;
 
-  // PROFILE EDIT MODAL (Nothing Style)
   if (showProfileEdit) {
     return (
       <div className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center p-6 text-white font-mono animate-fade-in">
@@ -151,11 +143,9 @@ export default function App() {
     );
   }
 
-  // CONTACT LIST UI POLISH
   if (!activeContactId) {
     return (
       <div className="fixed inset-0 h-[100dvh] w-full bg-black text-white font-mono flex flex-col p-6 overflow-hidden">
-        {/* HEADER */}
         <div className="flex justify-between items-center border-b border-[#333] pb-6 mb-6 pt-safe-top">
           <div>
             <h1 className="text-2xl font-dot tracking-widest font-light">CHATS</h1>
@@ -166,14 +156,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* INPUT */}
         <input 
           placeholder="SEARCH OR START CHAT..." 
           className="bg-[#111] p-5 rounded-xl mb-8 text-white border border-[#333] uppercase outline-none focus:border-white transition-colors text-xs tracking-widest placeholder-gray-700"
           onKeyDown={(e) => e.key === 'Enter' && setActiveContactId(e.currentTarget.value.toUpperCase())}
         />
 
-        {/* LIST */}
         <div className="flex-1 overflow-y-auto space-y-3 pr-2">
           {Object.keys(conversations).map(cId => (
             <div key={cId} onClick={() => setActiveContactId(cId)} className="group p-5 bg-black border border-[#222] rounded-xl hover:bg-[#111] hover:border-white cursor-pointer flex justify-between items-center transition-all active:scale-[0.98]">
@@ -193,7 +181,6 @@ export default function App() {
           )}
         </div>
 
-        {/* FOOTER */}
         <div className="pt-6 border-t border-[#222] mt-4 pb-safe-bottom">
            <button onClick={handleLogout} className="w-full py-4 text-red-900 text-[10px] tracking-[0.3em] border border-[#222] bg-black rounded-xl hover:bg-red-900/10 hover:text-red-500 hover:border-red-900/50 transition-all">
               TERMINATE SESSION
@@ -203,7 +190,6 @@ export default function App() {
     );
   }
 
-  // CHAT SCREEN
   return (
     <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-black">
       <div className="p-4 border-b border-[#333] flex justify-between items-center pt-safe-top bg-black z-10">
