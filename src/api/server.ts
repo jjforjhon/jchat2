@@ -1,31 +1,49 @@
 // src/api/server.ts
-const BASE_URL = 'http://localhost:3000'; // Or your production IP
+
+// ✅ FIX: Connected to your Render Backend
+const BASE_URL = 'https://jchat-server.onrender.com'; 
 
 export const api = {
   /**
    * 1. REGISTER
    */
   register: async (id: string, password: string, avatar?: string) => {
-    const res = await fetch(`${BASE_URL}/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, password, avatar }),
-    });
-    if (!res.ok) throw new Error('Registration failed');
-    return res.json();
+    try {
+      const res = await fetch(`${BASE_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, password, avatar }),
+      });
+      
+      // If server returns an error (like "User ID exists"), read the text
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server Error: ${res.status}`);
+      }
+      return res.json();
+    } catch (e: any) {
+      throw new Error(e.message || "Connection Failed: Check Render URL");
+    }
   },
 
   /**
    * 2. LOGIN
    */
   login: async (id: string, password: string) => {
-    const res = await fetch(`${BASE_URL}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, password }),
-    });
-    if (!res.ok) throw new Error('Login failed');
-    return res.json();
+    try {
+      const res = await fetch(`${BASE_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, password }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Login failed');
+      }
+      return res.json();
+    } catch (e: any) {
+      throw new Error(e.message || "Connection Failed: Check Render URL");
+    }
   },
 
   /**
@@ -53,7 +71,6 @@ export const api = {
 
   /**
    * 5. SEND MESSAGE
-   * (Now triggers immediate wake-up for recipient)
    */
   send: async (msg: any) => {
     await fetch(`${BASE_URL}/send`, {
@@ -65,17 +82,13 @@ export const api = {
 
   /**
    * 6. SYNC (LONG POLLING)
-   * This request may hang for up to 25 seconds.
    */
   sync: async (userId: string, since: number) => {
     try {
-      // We do NOT set a signal timeout here, letting the browser wait as long as needed.
-      // The server will cut it off at 25s.
       const res = await fetch(`${BASE_URL}/sync/${userId}?since=${since}`);
       if (!res.ok) return [];
       return await res.json();
     } catch (e) {
-      // If network fails or timeout, return empty so the loop retries
       return [];
     }
   },
