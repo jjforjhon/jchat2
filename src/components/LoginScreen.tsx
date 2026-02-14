@@ -19,17 +19,18 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
 
     try {
       if (mode === 'REGISTER') {
-        // Register & Auto Login
         await api.register(id, password, ''); 
-        // ✅ PASS PASSWORD TO APP
         onLogin({ id, password }); 
       } else {
         const res = await api.login(id, password);
-        // ✅ PASS PASSWORD TO APP
         onLogin({ ...res.user, password }); 
       }
     } catch (err: any) {
-      setError(mode === 'LOGIN' ? "ACCESS DENIED" : "ID UNAVAILABLE");
+      console.error("LOGIN DEBUG:", err);
+      // ✅ FIX: Show the REAL error message
+      // If it's a network error (server down/wrong IP), it says "Failed to fetch"
+      // If it's a server error, it shows the text sent by server
+      setError(err.message || "CONNECTION FAILED");
     } finally {
       setLoading(false);
     }
@@ -37,14 +38,10 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
 
   return (
     <div className="h-screen bg-black text-white font-mono flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      
-      {/* Background Decoration */}
       <div className="absolute top-0 left-0 w-full h-1 border-b border-dashed border-[#333]"></div>
       <div className="absolute bottom-0 right-0 w-full h-1 border-t border-dashed border-[#333]"></div>
 
       <div className="w-full max-w-md space-y-10 animate-fade-in z-10">
-        
-        {/* LOGO AREA */}
         <div className="text-center">
           <h1 className="text-6xl mb-2 font-dot tracking-wider text-white">J-CHAT</h1>
           <div className="flex justify-center items-center gap-3">
@@ -54,7 +51,6 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
           </div>
         </div>
 
-        {/* TABS (Segmented Control) */}
         <div className="flex bg-[#111] p-1 rounded-full border border-[#222]">
           {['REGISTER', 'LOGIN'].map((m) => (
             <button
@@ -71,7 +67,6 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
           ))}
         </div>
 
-        {/* FORM INPUTS */}
         <div className="space-y-6">
           <div className="group">
             <label className="text-[10px] text-gray-500 ml-4 mb-2 block tracking-widest group-focus-within:text-white transition-colors">IDENTITY</label>
@@ -96,7 +91,6 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
           </div>
         </div>
 
-        {/* ERROR MESSAGE */}
         {error && (
           <div className="flex items-center justify-center gap-2 text-red-500 text-xs tracking-widest border border-red-900/30 p-3 bg-red-900/10 rounded-lg">
             <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
@@ -104,7 +98,6 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
           </div>
         )}
 
-        {/* SUBMIT BUTTON */}
         <button
           onClick={handleSubmit}
           disabled={loading || !id || !password}
