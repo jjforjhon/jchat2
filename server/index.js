@@ -68,7 +68,7 @@ const notifyUser = (userId) => {
 
 // --- ROUTES ---
 
-// 1. REGISTER (Secure)
+// 1. REGISTER (Secure + Debugging)
 app.post('/register', (req, res) => {
   const { id, password, avatar } = req.body;
   if (!id || !password) return res.sendStatus(400);
@@ -82,6 +82,8 @@ app.post('/register', (req, res) => {
       .run(id, hash, salt, avatar || '', Date.now());
     res.json({ success: true });
   } catch (e) {
+    // ✅ DEBUG: Print the actual error to the console
+    console.error("REGISTRATION ERROR:", e); 
     res.status(409).json({ error: "User ID exists" });
   }
 });
