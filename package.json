@@ -1,7 +1,7 @@
 {
   "name": "j-chat",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -47,7 +47,7 @@
     "typescript": "^5.2.2",
     "vite": "^5.0.0"
   },
-  "description": "J-Chat 2: A Secure Messaging Application with Nothing OS Aesthetics",
+  "description": "J-Chat 2: A Privacy-Oriented Messaging Application with Monochrome Design Philosophy",
   "main": "postcss.config.js",
   "repository": {
     "type": "git",
@@ -57,7 +57,7 @@
     "secure-messenger",
     "react",
     "typescript",
-    "nothing-os",
+    "monochrome",
     "encryption",
     "sqlite"
   ],
