@@ -7,10 +7,11 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// DATABASE
+// DATABASE SETUP
 const db = new Database('jchat_persistent.sqlite');
 db.pragma('journal_mode = WAL');
 
+// 1. TABLE CREATION
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -33,38 +34,46 @@ db.exec(`
   );
 `);
 
-// MIGRATIONS
+// 2. MIGRATIONS (Auto-Fix Database)
 const columns = db.prepare("PRAGMA table_info(users)").all();
+
+// Add 'avatar' if missing
 if (!columns.some(c => c.name === 'avatar')) {
   console.log("Migrating: Adding avatar column...");
   db.prepare("ALTER TABLE users ADD COLUMN avatar TEXT").run();
 }
+
+// ✅ MIGRATION: Add 'salt' if missing (Critical for Security)
 if (!columns.some(c => c.name === 'salt')) {
   console.log("Migrating: Adding salt column...");
   db.prepare("ALTER TABLE users ADD COLUMN salt TEXT").run();
 }
 
-// HELPER: Secure Hash Function (Scrypt)
+// ✅ HELPER: Secure Hash Function (Scrypt)
 const hashPassword = (password, salt) => {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 };
 
-// Global "Waiting Room" for long-polling clients
+// GLOBAL: Waiting Room for Long Polling
 const pollingClients = {};
 
 // Helper to notify waiting clients
 const notifyUser = (userId) => {
   if (pollingClients[userId]) {
+    // Wake up all connections waiting for this user
     pollingClients[userId].forEach(res => res.json({ newMessages: true }));
     pollingClients[userId] = []; 
   }
 };
 
-// 1. REGISTER
+// --- ROUTES ---
+
+// 1. REGISTER (Secure)
 app.post('/register', (req, res) => {
   const { id, password, avatar } = req.body;
   if (!id || !password) return res.sendStatus(400);
 
+  // Generate a unique random salt for this user
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = hashPassword(password, salt);
 
@@ -77,22 +86,24 @@ app.post('/register', (req, res) => {
   }
 });
 
-// 2. LOGIN
+// 2. LOGIN (Secure + Legacy Support)
 app.post('/login', (req, res) => {
   const { id, password } = req.body;
   
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) return res.status(401).json({ error: "Invalid Credentials" });
 
+  // Check Password
   if (user.salt) {
+    // Modern secure user
     const attemptHash = hashPassword(password, user.salt);
     if (attemptHash !== user.password_hash) return res.status(401).json({ error: "Invalid Credentials" });
   } else {
-    // Legacy fallback (SHA256) for old users
+    // Legacy fallback (SHA256) for users created before update
     const legacyHash = crypto.createHash('sha256').update(password).digest('hex');
     if (legacyHash !== user.password_hash) return res.status(401).json({ error: "Invalid Credentials" });
     
-    // Upgrade legacy user to salted hash
+    // Auto-Upgrade legacy user to salted hash (Self-Healing)
     const newSalt = crypto.randomBytes(16).toString('hex');
     const newHash = hashPassword(password, newSalt);
     db.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?').run(newHash, newSalt, id);
@@ -108,23 +119,28 @@ app.post('/update-profile', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) return res.sendStatus(401);
 
-  const attemptHash = user.salt 
-    ? hashPassword(password, user.salt) 
-    : crypto.createHash('sha256').update(password).digest('hex');
+  // Verify password (handle both new and old users)
+  let isValid = false;
+  if (user.salt) {
+    isValid = hashPassword(password, user.salt) === user.password_hash;
+  } else {
+    isValid = crypto.createHash('sha256').update(password).digest('hex') === user.password_hash;
+  }
 
-  if (attemptHash !== user.password_hash) return res.status(401).json({ error: "Auth Failed" });
+  if (!isValid) return res.status(401).json({ error: "Auth Failed" });
 
   db.prepare('UPDATE users SET avatar = ?, name = ? WHERE id = ?').run(avatar, name, id);
   res.json({ success: true });
 });
 
-// 4. SEND MESSAGE
+// 4. SEND MESSAGE (Trigger Sync)
 app.post('/send', (req, res) => {
   const { id, fromUser, toUser, payload, type } = req.body;
   try {
     db.prepare('INSERT INTO messages (id, from_user, to_user, payload, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, fromUser, toUser, payload, type || 'text', Date.now());
     
+    // Wake up recipients immediately
     notifyUser(toUser);
     notifyUser(fromUser);
 
@@ -132,8 +148,8 @@ app.post('/send', (req, res) => {
   } catch (e) { res.sendStatus(500); }
 });
 
-// 5. SYNC (LONG POLLING)
-app.get('/sync/:userId', async (req, res) => {
+// 5. SYNC (Long Polling Implementation)
+app.get('/sync/:userId', (req, res) => {
   const { userId } = req.params;
   const { since } = req.query; 
 
@@ -149,6 +165,7 @@ app.get('/sync/:userId', async (req, res) => {
 
   const messages = getMessages();
   
+  // A. Return immediately if data exists
   if (messages.length > 0) {
     return res.json(messages.map(r => ({
       id: r.id,
@@ -161,15 +178,17 @@ app.get('/sync/:userId', async (req, res) => {
     })));
   }
 
+  // B. Otherwise WAIT (Long Poll)
   if (!pollingClients[userId]) pollingClients[userId] = [];
   pollingClients[userId].push(res);
 
+  // Timeout after 25s (Keep under browser 30s limit)
   setTimeout(() => {
     if (pollingClients[userId]) {
       const index = pollingClients[userId].indexOf(res);
       if (index > -1) {
         pollingClients[userId].splice(index, 1);
-        try { res.json([]); } catch(e) {}
+        try { res.json([]); } catch(e) {} // Return empty if no new messages
       }
     }
   }, 25000);
@@ -188,18 +207,22 @@ app.post('/react', (req, res) => {
   res.json({ success: true });
 });
 
-// 7. DELETE ACCOUNT
+// 7. DELETE ACCOUNT (Secure)
 app.post('/delete', (req, res) => {
   const { id, password } = req.body;
   
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) return res.sendStatus(401);
 
-  const attemptHash = user.salt 
-    ? hashPassword(password, user.salt) 
-    : crypto.createHash('sha256').update(password).digest('hex');
+  // Verify password
+  let isValid = false;
+  if (user.salt) {
+    isValid = hashPassword(password, user.salt) === user.password_hash;
+  } else {
+    isValid = crypto.createHash('sha256').update(password).digest('hex') === user.password_hash;
+  }
 
-  if (attemptHash !== user.password_hash) return res.status(401).json({ error: "Invalid credentials" });
+  if (!isValid) return res.status(401).json({ error: "Invalid credentials" });
   
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   db.prepare('DELETE FROM messages WHERE from_user = ? OR to_user = ?').run(id, id);
@@ -214,11 +237,11 @@ app.get('/user/:id', (req, res) => {
   } catch (e) { res.sendStatus(500); }
 });
 
-// CLEANUP TASK
+// CLEANUP TASK (Auto-delete old messages)
 setInterval(() => {
-  const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
+  const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000); // 30 Days
   db.prepare('DELETE FROM messages WHERE timestamp < ?').run(cutoff);
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000); // Run every hour
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on Port ${PORT}`));
