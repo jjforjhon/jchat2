@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { LoginScreen } from './components/LoginScreen';
 import { ChatScreen, Message } from './components/ChatScreen';
 import { api } from './api/server';
+import { cryptoUtils } from './utils/crypto'; // ✅ Import Encryption
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -12,10 +13,9 @@ export default function App() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // ✅ NEW: Track if component is mounted to prevent memory leaks during long polling
   const isMounted = useRef(true);
 
-  // 1. LOAD SESSION & MOUNT TRACKING
+  // 1. LOAD SESSION
   useEffect(() => {
     isMounted.current = true;
     const savedUser = localStorage.getItem('jchat_user');
@@ -50,7 +50,7 @@ export default function App() {
     }
   }, [activeContactId]);
 
-  // 4. INTELLIGENT SYNC LOOP (Long Polling)
+  // 4. INTELLIGENT SYNC LOOP (Long Polling + Decryption)
   useEffect(() => {
     if (!user) return;
 
@@ -65,8 +65,6 @@ export default function App() {
 
       try {
         const safeTime = lastTimestamp > 0 ? lastTimestamp - 100 : 0; 
-        
-        // This call will HANG (wait) for up to 25s if no messages
         const history = await api.sync(user.id, safeTime); 
         
         if (history && history.length > 0) {
@@ -81,9 +79,12 @@ export default function App() {
               
               const exists = nextConvos[partner].some((m: Message) => m.id === msg.id);
               if (!exists) {
+                // ✅ DECRYPT MESSAGE HERE
+                const decryptedText = cryptoUtils.decrypt(msg.payload, user.password, partner);
+
                 nextConvos[partner].push({
                   id: msg.id,
-                  text: msg.payload, 
+                  text: decryptedText, 
                   sender: msg.fromUser === user.id ? 'me' : 'them',
                   timestamp: msg.timestamp,
                   type: msg.type,
@@ -104,33 +105,36 @@ export default function App() {
           });
         }
       } catch (e) {
-        // On error (timeout/network), wait 3s before retry
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
 
-      // Loop immediately if still mounted
       if (isMounted.current && user) pollMessages();
     };
 
-    pollMessages(); // Start the loop
+    pollMessages(); 
   }, [user, blockedUsers]); 
 
   // ACTIONS
   const handleSendMessage = async (content: string, type: 'text' | 'image' | 'video') => {
     if (!activeContactId) return;
+
+    // ✅ ENCRYPT MESSAGE HERE
+    const encryptedPayload = cryptoUtils.encrypt(content, user.password, activeContactId);
+
     const msg = {
       id: crypto.randomUUID(),
       fromUser: user.id,
       toUser: activeContactId,
-      payload: content,
+      payload: encryptedPayload, // Send ciphertext
       type: type,
       timestamp: Date.now()
     };
     
+    // Optimistic Update (Show clear text locally)
     setConversations(prev => {
         const next = {...prev};
         if(!next[activeContactId]) next[activeContactId] = [];
-        next[activeContactId].push({...msg, text: content, sender: 'me', status: 'sent'} as any);
+        next[activeContactId].push({...msg, payload: encryptedPayload, text: content, sender: 'me', status: 'sent'} as any);
         return next;
     });
 
