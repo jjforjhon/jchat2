@@ -1,5 +1,4 @@
-// Replace content of src/api/server.ts
-
+// src/api/server.ts
 const BASE_URL = 'http://localhost:3000'; // Or your production IP
 
 export const api = {
@@ -88,7 +87,7 @@ export const api = {
     await fetch(`${BASE_URL}/react`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageId, emoji }),
+      body: JSON.stringify({ messageId: msgId, emoji }),
     });
   },
 
@@ -101,4 +100,6 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, password: pass }),
     });
-    if (!res.ok) throw new
+    if (!res.ok) throw new Error('Delete failed');
+  }
+};
