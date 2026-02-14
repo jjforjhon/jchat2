@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { LoginScreen } from './components/LoginScreen';
 import { ChatScreen, Message } from './components/ChatScreen';
 import { api } from './api/server';
-import { cryptoUtils } from './utils/crypto'; // ✅ Import Encryption
+import { cryptoUtils } from './utils/crypto'; 
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -79,13 +79,12 @@ export default function App() {
               
               const exists = nextConvos[partner].some((m: Message) => m.id === msg.id);
               if (!exists) {
-                // ✅ DECRYPT MESSAGE HERE
-                // We use our password + the partner's ID to unlock the message
-                const decryptedText = cryptoUtils.decrypt(msg.payload, user.password, partner);
+                // ✅ FIX: Use ID-based decryption (No Password needed)
+                const decryptedText = cryptoUtils.decrypt(msg.payload, user.id, partner);
 
                 nextConvos[partner].push({
                   id: msg.id,
-                  text: decryptedText, // Store decrypted text in memory
+                  text: decryptedText, 
                   sender: msg.fromUser === user.id ? 'me' : 'them',
                   timestamp: msg.timestamp,
                   type: msg.type,
@@ -119,9 +118,8 @@ export default function App() {
   const handleSendMessage = async (content: string, type: 'text' | 'image' | 'video') => {
     if (!activeContactId) return;
 
-    // ✅ ENCRYPT MESSAGE HERE
-    // We lock the message with our password + target ID
-    const encryptedPayload = cryptoUtils.encrypt(content, user.password, activeContactId);
+    // ✅ FIX: Encrypt using IDs (Matching logic)
+    const encryptedPayload = cryptoUtils.encrypt(content, user.id, activeContactId);
 
     const msg = {
       id: crypto.randomUUID(),
@@ -132,11 +130,10 @@ export default function App() {
       timestamp: Date.now()
     };
     
-    // Optimistic Update (Show plain text locally)
+    // Optimistic Update (Show clear text locally)
     setConversations(prev => {
         const next = {...prev};
         if(!next[activeContactId]) next[activeContactId] = [];
-        // We store plain text locally for display, but send encryptedPayload to server
         next[activeContactId].push({...msg, payload: encryptedPayload, text: content, sender: 'me', status: 'sent'} as any);
         return next;
     });
