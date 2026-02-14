@@ -21,9 +21,11 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
       if (mode === 'REGISTER') {
         // Register & Auto Login
         await api.register(id, password, ''); 
+        // ✅ PASS PASSWORD TO APP
         onLogin({ id, password }); 
       } else {
         const res = await api.login(id, password);
+        // ✅ PASS PASSWORD TO APP
         onLogin({ ...res.user, password }); 
       }
     } catch (err: any) {
@@ -47,7 +49,7 @@ export const LoginScreen = ({ onLogin }: LoginProps) => {
           <h1 className="text-6xl mb-2 font-dot tracking-wider text-white">J-CHAT</h1>
           <div className="flex justify-center items-center gap-3">
             <span className="h-px w-8 bg-[#333]"></span>
-            <span className="text-[10px] tracking-[0.4em] text-gray-500 uppercase">System v2.0</span>
+            <span className="text-[10px] tracking-[0.4em] text-gray-500 uppercase">System v2.1</span>
             <span className="h-px w-8 bg-[#333]"></span>
           </div>
         </div>
